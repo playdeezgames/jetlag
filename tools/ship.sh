@@ -3,11 +3,11 @@
 # never deletes anything but its own zip. Usage: tools/ship.sh [--push]
 #
 # The target is the existing "JetLag 2021" page (do not rename or add channels to a live page by accident).
-# It is empty until the page's real slug and html channel are confirmed (Coxswain task 348); --push refuses until then.
+# Confirmed October 30, 2026 (Coxswain task 348): slug jetlag-2021, no html channel yet, so the first push creates it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ODIN=${ODIN:-odin}
-TARGET="" # e.g. thegrumpygamedev/<slug>:html, once confirmed
+TARGET="thegrumpygamedev/jetlag-2021:html" # the page has only a Windows upload today, so the first push creates the html channel (task 348)
 ZIP="build/jetlag-html5.zip"
 
 "$ODIN" test src/game -define:ODIN_TEST_THREADS=1
