@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+	<title>JetLag</title>
+	<style>
+		html, body { margin: 0; height: 100%; background: #111; color: #888; font: 12px/1.4 monospace; }
+		body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+		canvas { image-rendering: pixelated; background: #000; touch-action: none; display: block; }
+		footer { margin-top: 8px; text-align: center; max-width: 90vw; }
+		footer a { color: #aaa; }
+	</style>
+</head>
+<body>
+	<canvas id="screen" width="320" height="240"></canvas>
+	<footer>
+		JetLag by TheGrumpyGameDev. Font m5x7 by Daniel Linssen (CC0). Ported to Odin and wasm by an AI agent (Claude Code) at the author's direction.
+		<a href="https://thegrumpygamedev.itch.io/">itch.io</a> · <a href="https://playdeezgames.github.io/oeuvre-of-splorr/">more games</a>
+	</footer>
+	<script src="odin.js"></script>
+	<script>
+	(function () {
+		"use strict";
+		const W = 320, H = 240;
+		// Must match src/game: Command (Left, Right, Start, Mute) and Sound (Turn, Death, Coin, Bank).
+		const CMD = { LEFT: 0, RIGHT: 1, START: 2, MUTE: 3 };
+		const SOUND_FILES = ["sfx/turn.wav", "sfx/death.wav", "sfx/coin.wav", "sfx/bank.wav"];
+		const KEY_SLOTS = ["jetlag.high", "jetlag.bank", "jetlag.muted"];
+
+		const screen = document.getElementById("screen");
+		const ctx = screen.getContext("2d");
+		ctx.imageSmoothingEnabled = false;
+		const memory = new odin.WasmMemoryInterface();
+		let ex = null; // memory.exports once the wasm is up
+
+		function storeGet(slot) {
+			try { return Number(localStorage.getItem(KEY_SLOTS[slot])) || 0; } catch (e) { return 0; }
+		}
+		function storeSet(slot, value) {
+			try { localStorage.setItem(KEY_SLOTS[slot], String(value)); } catch (e) { /* private mode */ }
+		}
+
+		function fit() {
+			let s = Math.min(window.innerWidth / W, (window.innerHeight - 40) / H);
+			s = s >= 1 ? Math.floor(s) : Math.max(s, 0.5);
+			screen.style.width = Math.round(W * s) + "px";
+			screen.style.height = Math.round(H * s) + "px";
+		}
+		window.addEventListener("resize", fit);
+		fit();
+
+		// ---- sound ----
+		let audio = null;
+		const buffers = [];
+		function unlock() {
+			if (audio) { if (audio.state === "suspended") audio.resume(); return; }
+			try {
+				audio = new (window.AudioContext || window.webkitAudioContext)();
+			} catch (e) { return; }
+			SOUND_FILES.forEach((path, i) => {
+				fetch(path).then(r => r.arrayBuffer()).then(b => audio.decodeAudioData(b)).then(d => { buffers[i] = d; }).catch(() => {});
+			});
+		}
+		function play(id) {
+			if (!audio || !buffers[id]) return;
+			const src = audio.createBufferSource();
+			const gain = audio.createGain();
+			gain.gain.value = 0.4;
+			src.buffer = buffers[id];
+			src.connect(gain).connect(audio.destination);
+			src.start();
+		}
+
+		// ---- input ----
+		function send(cmd) { if (ex) ex.platform_command(cmd); }
+		const KEYS = {
+			ArrowLeft: CMD.LEFT, KeyA: CMD.LEFT, ArrowRight: CMD.RIGHT, KeyD: CMD.RIGHT,
+			KeyZ: CMD.START, Space: CMD.START, Enter: CMD.START, KeyM: CMD.MUTE,
+		};
+		window.addEventListener("keydown", e => {
+			if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+			const cmd = KEYS[e.code];
+			if (cmd === undefined) return;
+			e.preventDefault();
+			unlock();
+			send(cmd);
+		});
+		screen.addEventListener("pointerdown", e => {
+			e.preventDefault();
+			unlock();
+			if (!ex) return;
+			if (!ex.platform_in_play()) { send(CMD.START); return; }
+			const r = screen.getBoundingClientRect();
+			send(e.clientX - r.left < r.width / 2 ? CMD.LEFT : CMD.RIGHT);
+		});
+		let padPrev = { left: false, right: false, start: false };
+		function pollPad() {
+			const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+			for (const p of pads) {
+				if (!p || p.mapping !== "standard") continue;
+				const now = {
+					left: p.buttons[14].pressed || p.axes[0] < -0.5,
+					right: p.buttons[15].pressed || p.axes[0] > 0.5,
+					start: p.buttons[0].pressed || p.buttons[9].pressed,
+				};
+				if (now.left && !padPrev.left) send(CMD.LEFT);
+				if (now.right && !padPrev.right) send(CMD.RIGHT);
+				if (now.start && !padPrev.start) { unlock(); send(CMD.START); }
+				padPrev = now;
+				return;
+			}
+		}
+
+		// ---- loop ----
+		let image = null, last = 0;
+		function frame(t) {
+			const dt = last ? (t - last) / 1000 : 0;
+			last = t;
+			pollPad();
+			ex.platform_frame(dt);
+			let id;
+			while ((id = ex.platform_take_sfx()) >= 0) play(id);
+			if (!image) {
+				image = new ImageData(new Uint8ClampedArray(memory.memory.buffer, ex.platform_frame_ptr(), W * H * 4), W, H);
+			} else if (image.data.buffer !== memory.memory.buffer) {
+				image = new ImageData(new Uint8ClampedArray(memory.memory.buffer, ex.platform_frame_ptr(), W * H * 4), W, H);
+			}
+			ctx.putImageData(image, 0, 0);
+			requestAnimationFrame(frame);
+		}
+		function boot() {
+			if (!memory.exports || !memory.exports.platform_frame) { requestAnimationFrame(boot); return; }
+			ex = memory.exports;
+			ex.platform_init(Date.now());
+			if (location.hash === "#play") ex.platform_command(CMD.START); // QA and screenshots
+			requestAnimationFrame(frame);
+		}
+		odin.runWasm("game.wasm", null, { env: { store_get: storeGet, store_set: storeSet } }, memory);
+		boot();
+		window.jetlag = { send, state: () => (ex ? ex.platform_in_play() : -1) }; // for QA from the console
+	})();
+	</script>
+</body>
+</html>
