@@ -1,6 +1,6 @@
 # JetLag
 
-A scrolly-block endless runner. A jet flies up the screen and leaves a six-cell tail. Steer left and right between the blocks. The longer you hold a line before you turn, the more the turn scores.
+A scrolly-block endless runner. A jet sits at the top of the screen while the board scrolls up past it, leaving a six-cell tail above it. Steer left and right between the blocks. The longer you hold a line before you turn, the more the turn scores.
 
 **Play: https://playdeezgames.github.io/jetlag/**
 

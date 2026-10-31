@@ -136,7 +136,7 @@ render :: proc(g: ^Game, f: ^Frame) {
 		}
 	}
 	for i := TAIL_LENGTH - 1; i >= 0; i -= 1 {
-		draw_cell(f, int(g.tail[i]), HEAD_ROW + i, i == 0 ? RED : YELLOW)
+		draw_cell(f, int(g.tail[i]), HEAD_ROW - i, i == 0 ? RED : YELLOW)
 	}
 
 	// HUD in the top row

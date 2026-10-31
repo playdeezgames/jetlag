@@ -1,6 +1,6 @@
 # JetLag
 
-A scrolly-block endless runner. Your jet climbs the screen and drags a six-cell tail behind it. Steer between the blocks, grab the coins, and bank them before you crash.
+A scrolly-block endless runner. Your jet rides at the top of the screen as the board scrolls up past it, dragging a six-cell tail. Steer between the blocks, grab the coins, and bank them before you crash.
 
 **Controls:** Left / Right or A / D to turn (or tap the left or right half of the screen). Z, Space or a tap to start. M mutes.
 

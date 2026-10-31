@@ -16,9 +16,9 @@ clear_charms :: proc(g: ^Game) {
 
 // step_clean steps with no new charm: the test sets the charm in the head row after scrolling.
 place_next :: proc(g: ^Game, charm: Charm, column: i8) {
-	// the charm that will reach the head row after the next step is the one in row HEAD_ROW-1 now
-	g.charms[HEAD_ROW - 1] = charm
-	g.columns[HEAD_ROW - 1] = column
+	// the charm that will reach the head row after the next step is the one in row HEAD_ROW+1 now
+	g.charms[HEAD_ROW + 1] = charm
+	g.columns[HEAD_ROW + 1] = column
 }
 
 @(test)
@@ -216,7 +216,8 @@ test_new_rows_stay_between_the_walls :: proc(t: ^testing.T) {
 		g.in_play = true
 		g.tail[0] = COLUMNS / 2
 		step(&g)
-		testing.expect(t, g.columns[0] >= 1 && g.columns[0] <= COLUMNS - 2)
+		testing.expect(t, g.columns[ROWS - 1] >= SPAWN_MIN && g.columns[ROWS - 1] <= SPAWN_MAX)
+		testing.expect(t, g.columns[ROWS - 1] > 1 && g.columns[ROWS - 1] < COLUMNS - 2, "never beside a wall")
 	}
 }
 
@@ -265,7 +266,7 @@ test_render_draws_head_tail_walls_and_charms :: proc(t: ^testing.T) {
 	testing.expect_value(t, px(f, 7, 11), u32(YELLOW)) // the coin's bright middle
 	testing.expect_value(t, f[(12 * CELL + 7) * WIDTH + 9 * CELL + 7], u32(BRIGHT_GREEN)) // the bank's corner, clear of the $
 	testing.expect_value(t, px(f, int(g.tail[0]), HEAD_ROW), u32(RED))
-	testing.expect_value(t, px(f, int(g.tail[1]), HEAD_ROW + 1), u32(YELLOW))
+	testing.expect_value(t, px(f, int(g.tail[1]), HEAD_ROW - 1), u32(YELLOW))
 }
 
 @(test)
@@ -337,7 +338,7 @@ write_ppm :: proc(f: ^Frame, path: string) {
 bot_turn :: proc(g: ^Game) {
 	ahead := g.tail[0] + g.direction * 2
 	hit := ahead <= 1 || ahead >= COLUMNS - 2
-	for r in HEAD_ROW - 2 ..< HEAD_ROW {
+	for r in HEAD_ROW + 1 ..= HEAD_ROW + 2 {
 		if g.charms[r] == .Block && (g.columns[r] == g.tail[0] + g.direction || g.columns[r] == ahead) {
 			hit = true
 		}

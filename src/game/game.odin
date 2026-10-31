@@ -1,7 +1,7 @@
 // JetLag rules. No platform imports: the page (src/web) and the tests both drive this package.
 //
-// A jet flies up a 40 by 30 grid, leaving a six-cell tail. Each tick a new row scrolls in from the top
-// with one charm in it (a block, a coin or a bank) and the jet moves one column in its direction.
+// A jet flies down a 40 by 30 grid, leaving a six-cell tail above it, so the board scrolls up. Each tick a
+// new row scrolls in from the bottom with one charm in it (a block, a coin or a bank) and the jet moves one column in its direction.
 // Turning scores the triangular number of the ticks since the last turn, so long straight runs pay
 // (from JetLag 2020); coins and banks come from JetLag 2023.
 package game
@@ -9,7 +9,10 @@ package game
 COLUMNS :: 40
 ROWS :: 30
 TAIL_LENGTH :: 6
-HEAD_ROW :: ROWS - TAIL_LENGTH // the row the jet's head is on (0-based; the top row is 0)
+HEAD_ROW :: TAIL_LENGTH + 1 // the row the jet's head is on (0-based; row 0 is the HUD); the tail trails above it
+// Charms never spawn against a wall: the wall is column 0 and COLUMNS-1, and one clear column is kept beside it.
+SPAWN_MIN :: 2
+SPAWN_MAX :: COLUMNS - 3
 STEP_TIME :: 0.1 // seconds per tick
 
 Charm :: enum u8 {
@@ -186,12 +189,12 @@ tick :: proc(g: ^Game, dt: f32) {
 // step advances the world by one tick: scroll the rows, move the jet, resolve what it hit.
 step :: proc(g: ^Game) {
 	g.run += 1
-	for r := ROWS - 1; r >= 1; r -= 1 {
-		g.charms[r] = g.charms[r - 1]
-		g.columns[r] = g.columns[r - 1]
+	for r in 0 ..< ROWS - 1 {
+		g.charms[r] = g.charms[r + 1]
+		g.columns[r] = g.columns[r + 1]
 	}
-	g.charms[0] = pick_charm(g)
-	g.columns[0] = i8(range_i(g, 1, COLUMNS - 2))
+	g.charms[ROWS - 1] = pick_charm(g)
+	g.columns[ROWS - 1] = i8(range_i(g, SPAWN_MIN, SPAWN_MAX))
 
 	for r := TAIL_LENGTH - 1; r >= 1; r -= 1 {
 		g.tail[r] = g.tail[r - 1]
