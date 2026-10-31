@@ -100,7 +100,8 @@ next_u32 :: proc(g: ^Game) -> u32 {
 
 // range_i returns a number in [lo, hi].
 range_i :: proc(g: ^Game, lo, hi: int) -> int {
-	return lo + int(next_u32(g)) % (hi - lo + 1)
+	// The modulo is done in u32: on js_wasm32 int is 32 bits, so int(u32) can go negative and spawn outside [lo, hi].
+	return lo + int(next_u32(g) % u32(hi - lo + 1))
 }
 
 pick_charm :: proc(g: ^Game) -> Charm {
@@ -109,7 +110,7 @@ pick_charm :: proc(g: ^Game) -> Charm {
 	for w in weights {
 		total += w
 	}
-	roll := int(next_u32(g)) % total
+	roll := int(next_u32(g) % u32(total))
 	for w, c in weights {
 		if roll < w {
 			return c
