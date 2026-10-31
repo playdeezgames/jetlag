@@ -17,17 +17,17 @@ for src, dst in names.items():
 # cover: the play frame at 2x, a darkened band and the title set in m5x7 at 8x
 play = imgs["play"].resize((640, 480), Image.NEAREST)
 cover = Image.new("RGB", (630, 500), (0, 0, 0))
-cover.paste(play, (-5, 20))
-band = Image.new("RGB", (630, 150), (0, 0, 0))
+cover.paste(play, (-5, 44))  # the jet rides at the top of the frame, so its tail starts at row 2 (y 32 at 2x)
+band = Image.new("RGB", (630, 76), (0, 0, 0))
 cover.paste(band, (0, 0))
 font = ImageFont.truetype(os.path.join(root, "assets", "m5x7.ttf"), 16)
 mask = Image.new("L", (80, 16), 0)
 ImageDraw.Draw(mask).text((0, 12), "JETLAG", font=font, fill=255, anchor="ls")
 box = mask.getbbox()
 mask = mask.crop(box)
-scale = 14
+scale = 8
 mask = mask.resize((mask.width * scale, mask.height * scale), Image.NEAREST)
 yellow = Image.new("RGB", mask.size, (255, 255, 85))
-cover.paste(yellow, ((630 - mask.width) // 2, 30), mask)
+cover.paste(yellow, ((630 - mask.width) // 2, 10), mask)
 cover.save(os.path.join(root, "assets", "cover.png"))
 print("cover", cover.size)
