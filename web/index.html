@@ -23,10 +23,23 @@
 	(function () {
 		"use strict";
 		const W = 320, H = 240;
-		// Must match src/game: Command (Left, Right, Start, Mute) and Sound (Turn, Death, Coin, Bank).
-		const CMD = { LEFT: 0, RIGHT: 1, START: 2, MUTE: 3 };
+		// Must match src/game: Command (Left, Right, Start, Mute, Board) and Sound (Turn, Death, Coin, Bank).
+		const CMD = { LEFT: 0, RIGHT: 1, START: 2, MUTE: 3, BOARD: 4 };
+		// Must match game.Board_Status (Idle, Loading, Ready, Failed).
+		const BOARD = { LOADING: 1, READY: 2, FAILED: 3 };
+		// LootLocker online top scores. This is the game's public client key, not a secret. Dev mode keeps
+		// test data apart from live; before shipping, swap in the live key and set dev to false.
+		const LL = {
+			domain: "https://wwx9jy8c.api.lootlocker.com",
+			key: "dev_1beaf08c7c604e1da5d423227a0930a8",
+			dev: true,
+			version: "1.0.0",
+			board: "jetlag_score",
+			count: 10,
+		};
 		const SOUND_FILES = ["sfx/turn.wav", "sfx/death.wav", "sfx/coin.wav", "sfx/bank.wav"];
 		const KEY_SLOTS = ["jetlag.high", "jetlag.bank", "jetlag.muted"];
+		const NAME_LEN = 16; // game.NAME_LEN
 
 		const screen = document.getElementById("screen");
 		const ctx = screen.getContext("2d");
@@ -39,6 +52,77 @@
 		}
 		function storeSet(slot, value) {
 			try { localStorage.setItem(KEY_SLOTS[slot], String(value)); } catch (e) { /* private mode */ }
+		}
+
+		// ---- online scores ----
+		function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+		function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
+		function pick(k, make) {
+			let v = lsGet(k);
+			if (!v) { v = make(); lsSet(k, v); }
+			return v;
+		}
+		const playerId = pick("jetlag.id", () => Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join(""));
+		const playerName = pick("jetlag.name", () => "Player-" + String(1000 + Math.floor(Math.random() * 9000)));
+
+		// Writes text into the wasm scratch buffer (printable ASCII only) and returns its length.
+		function putName(text) {
+			const clean = String(text).replace(/[^\x20-\x7e]/g, "?").slice(0, NAME_LEN);
+			const bytes = new Uint8Array(memory.memory.buffer, ex.platform_scratch_ptr(), NAME_LEN);
+			for (let i = 0; i < clean.length; i++) bytes[i] = clean.charCodeAt(i);
+			return clean.length;
+		}
+
+		async function llCall(method, path, token, body) {
+			const headers = { "Content-Type": "application/json" };
+			if (token) headers["x-session-token"] = token;
+			const r = await fetch(LL.domain + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+			if (!r.ok) throw new Error(path + " " + r.status);
+			return r.json();
+		}
+
+		let sessionToken = null, sessionPlayer = null, sessionPending = null;
+		function session() {
+			if (sessionToken) return Promise.resolve(sessionToken);
+			if (!sessionPending) {
+				sessionPending = (async () => {
+					const s = await llCall("POST", "/game/v2/session/guest", null, {
+						game_key: LL.key, game_version: LL.version, development_mode: LL.dev, player_identifier: playerId,
+					});
+					if (s.player_name !== playerName) await llCall("PATCH", "/game/player/name", s.session_token, { name: playerName });
+					sessionPlayer = String(s.player_id);
+					sessionToken = s.session_token;
+					return sessionToken;
+				})().finally(() => { sessionPending = null; });
+			}
+			return sessionPending;
+		}
+		// A request with a session; a stale session (the token expires) is replaced once.
+		async function withSession(fn) {
+			try { return await fn(await session()); } catch (e) {
+				sessionToken = null;
+				return await fn(await session());
+			}
+		}
+
+		async function loadBoard() {
+			try {
+				const list = await withSession(t => llCall("GET", "/game/leaderboards/" + LL.board + "/list?count=" + LL.count, t));
+				ex.platform_board_begin();
+				for (const row of list.items || []) {
+					const n = putName(row.player && row.player.name ? row.player.name : "?");
+					ex.platform_board_add(Math.min(Number(row.score) || 0, 2147483647), n);
+				}
+				ex.platform_board_status(BOARD.READY);
+			} catch (e) {
+				ex.platform_board_status(BOARD.FAILED);
+			}
+		}
+		async function submitScore(score) {
+			try {
+				await withSession(t => llCall("POST", "/game/leaderboards/" + LL.board + "/submit", t, { member_id: sessionPlayer, score }));
+			} catch (e) { /* the score just does not go up; the game plays on */ }
+			loadBoard();
 		}
 
 		function fit() {
@@ -76,7 +160,7 @@
 		function send(cmd) { if (ex) ex.platform_command(cmd); }
 		const KEYS = {
 			ArrowLeft: CMD.LEFT, KeyA: CMD.LEFT, ArrowRight: CMD.RIGHT, KeyD: CMD.RIGHT,
-			KeyZ: CMD.START, Space: CMD.START, Enter: CMD.START, KeyM: CMD.MUTE,
+			KeyZ: CMD.START, Space: CMD.START, Enter: CMD.START, KeyM: CMD.MUTE, KeyB: CMD.BOARD,
 		};
 		window.addEventListener("keydown", e => {
 			if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -90,11 +174,11 @@
 			e.preventDefault();
 			unlock();
 			if (!ex) return;
-			if (!ex.platform_in_play()) { send(CMD.START); return; }
 			const r = screen.getBoundingClientRect();
+			if (!ex.platform_in_play()) { send(e.clientY - r.top < r.height / 5 ? CMD.BOARD : CMD.START); return; }
 			send(e.clientX - r.left < r.width / 2 ? CMD.LEFT : CMD.RIGHT);
 		});
-		let padPrev = { left: false, right: false, start: false };
+		let padPrev = { left: false, right: false, start: false, board: false };
 		function pollPad() {
 			const pads = navigator.getGamepads ? navigator.getGamepads() : [];
 			for (const p of pads) {
@@ -103,7 +187,9 @@
 					left: p.buttons[14].pressed || p.axes[0] < -0.5,
 					right: p.buttons[15].pressed || p.axes[0] > 0.5,
 					start: p.buttons[0].pressed || p.buttons[9].pressed,
+					board: p.buttons[3].pressed,
 				};
+				if (now.board && !padPrev.board) send(CMD.BOARD);
 				if (now.left && !padPrev.left) send(CMD.LEFT);
 				if (now.right && !padPrev.right) send(CMD.RIGHT);
 				if (now.start && !padPrev.start) { unlock(); send(CMD.START); }
@@ -133,10 +219,12 @@
 			if (!memory.exports || !memory.exports.platform_frame) { requestAnimationFrame(boot); return; }
 			ex = memory.exports;
 			ex.platform_init(Date.now());
+			ex.platform_player_name(putName(playerName));
+			loadBoard();
 			if (location.hash === "#play") ex.platform_command(CMD.START); // QA and screenshots
 			requestAnimationFrame(frame);
 		}
-		odin.runWasm("game.wasm", null, { env: { store_get: storeGet, store_set: storeSet } }, memory);
+		odin.runWasm("game.wasm", null, { env: { store_get: storeGet, store_set: storeSet, board_refresh: () => loadBoard(), board_submit: score => submitScore(score) } }, memory);
 		boot();
 		window.jetlag = { send, state: () => (ex ? ex.platform_in_play() : -1) }; // for QA from the console
 	})();

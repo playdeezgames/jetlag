@@ -11,6 +11,9 @@ foreign import host "env"
 foreign host {
 	store_get :: proc(slot: i32) -> f64 ---
 	store_set :: proc(slot: i32, value: f64) ---
+	// The online scores live in the page (LootLocker); it answers through the platform_board_* exports.
+	board_refresh :: proc() ---
+	board_submit :: proc(score: i32) ---
 }
 
 // The page's save slots.
@@ -20,6 +23,7 @@ SLOT_MUTED :: 2
 
 g: game.Game
 frame: game.Frame
+scratch: [game.NAME_LEN]u8 // the page writes a name here before calling platform_board_add or platform_player_name
 
 main :: proc() {
 	g = game.new_game(1)
@@ -45,6 +49,10 @@ platform_init :: proc "c" (seed: f64) {
 platform_frame :: proc "c" (dt: f64) {
 	context = runtime.default_context()
 	game.tick(&g, f32(min(dt, 0.25)))
+	if score, ok := game.take_submit(&g); ok {
+		g.board_status = .Loading
+		board_submit(i32(score))
+	}
 	save_if_dirty()
 	game.render(&g, &frame)
 }
@@ -55,8 +63,46 @@ platform_command :: proc "c" (c: i32) {
 	if c < 0 || c > i32(max(game.Command)) {
 		return
 	}
+	was := g.show_board
 	game.command(&g, game.Command(c))
+	if g.show_board && !was {
+		refresh_board()
+	}
 	save_if_dirty()
+}
+
+@(export)
+platform_scratch_ptr :: proc "c" () -> rawptr {
+	return &scratch
+}
+
+// platform_board_begin clears the rows; the page then calls platform_board_add for each, then platform_board_status.
+@(export)
+platform_board_begin :: proc "c" () {
+	context = runtime.default_context()
+	game.board_begin(&g)
+}
+
+// platform_board_status takes a game.Board_Status (Ready after the rows, Failed when the request did not work).
+@(export)
+platform_board_status :: proc "c" (s: i32) {
+	if s < 0 || s > i32(max(game.Board_Status)) {
+		return
+	}
+	g.board_status = game.Board_Status(s)
+}
+
+// platform_board_add appends a row: the name is the first n bytes of the scratch buffer.
+@(export)
+platform_board_add :: proc "c" (score, n: i32) {
+	context = runtime.default_context()
+	game.board_add(&g, scratch[:clamp(int(n), 0, len(scratch))], int(score))
+}
+
+@(export)
+platform_player_name :: proc "c" (n: i32) {
+	context = runtime.default_context()
+	game.set_entry(&g.player, scratch[:clamp(int(n), 0, len(scratch))], 0)
 }
 
 @(export)
@@ -85,6 +131,11 @@ platform_take_sfx :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	s, ok := game.take_sfx(&g)
 	return ok ? i32(s) : -1
+}
+
+refresh_board :: proc() {
+	g.board_status = .Loading
+	board_refresh()
 }
 
 save_if_dirty :: proc() {

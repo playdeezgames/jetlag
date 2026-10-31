@@ -381,3 +381,47 @@ test_bot_survives_a_while :: proc(t: ^testing.T) {
 		write_ppm(f, "build/shots/crashed.ppm")
 	}
 }
+
+@(test)
+test_crash_queues_the_score_once :: proc(t: ^testing.T) {
+	g := started()
+	g.score = 40
+	crash(&g)
+	s, ok := take_submit(&g)
+	testing.expect(t, ok)
+	testing.expect_value(t, s, 40)
+	_, again := take_submit(&g)
+	testing.expect(t, !again)
+}
+
+@(test)
+test_zero_score_is_not_submitted :: proc(t: ^testing.T) {
+	g := started()
+	crash(&g)
+	_, ok := take_submit(&g)
+	testing.expect(t, !ok)
+}
+
+@(test)
+test_board_screen_toggles_only_out_of_play :: proc(t: ^testing.T) {
+	g := new_game(3)
+	command(&g, .Board)
+	testing.expect(t, g.show_board)
+	command(&g, .Start) // flying hides it
+	testing.expect(t, !g.show_board && g.in_play)
+	command(&g, .Board)
+	testing.expect(t, !g.show_board)
+}
+
+@(test)
+test_board_rows_are_capped_and_names_cleaned :: proc(t: ^testing.T) {
+	g := new_game(3)
+	for i in 0 ..< BOARD_ROWS + 3 {
+		board_add(&g, transmute([]u8)string("A very long player name\xff"), i)
+	}
+	testing.expect_value(t, g.board_count, BOARD_ROWS)
+	testing.expect_value(t, g.board[0].name_len, NAME_LEN)
+	board_begin(&g)
+	board_add(&g, {'o', 0xe9, 'k'}, 9)
+	testing.expect_value(t, g.board[0].name[1], u8('?'))
+}

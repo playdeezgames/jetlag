@@ -165,11 +165,45 @@ MENU_LINES :: [?]string{
 	"HIT A GREEN $ TO BANK THEM",
 }
 
+draw_board :: proc(g: ^Game, f: ^Frame) {
+	buf: [40]u8
+	draw_text_centered(f, 30, "TOP SCORES", YELLOW, 2)
+	y := 54
+	switch g.board_status {
+	case .Idle, .Loading:
+		draw_text_centered(f, y + 40, "LOADING...", GRAY, 1)
+	case .Failed:
+		draw_text_centered(f, y + 40, "SCORES ARE OFFLINE", GRAY, 1)
+	case .Ready:
+		if g.board_count == 0 {
+			draw_text_centered(f, y + 40, "NO SCORES YET", GRAY, 1)
+		}
+		for i in 0 ..< g.board_count {
+			e := g.board[i]
+			mine := e.name_len > 0 && e.name_len == g.player.name_len && e.name == g.player.name
+			color: u32 = mine ? WHITE : GRAY
+			draw_text(f, PANEL_X + 40, y, itoa(buf[:], "", i + 1), color, 1)
+			draw_text(f, PANEL_X + 64, y, string(e.name[:e.name_len]), color, 1)
+			draw_text_right(f, WIDTH - PANEL_X - 40, y, itoa(buf[:], "", e.score), color, 1)
+			y += 11
+		}
+	}
+	if g.player.name_len > 0 {
+		draw_text_centered(f, PANEL_Y + PANEL_H - 28, string(g.player.name[:g.player.name_len]), GOLD, 1)
+	}
+	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 14, "B OR TAP TOP: BACK", GRAY, 1)
+	draw_text_right(f, WIDTH - PANEL_X - 6, PANEL_Y + PANEL_H - 14, "Z: FLY", GRAY, 1)
+}
+
 draw_menu :: proc(g: ^Game, f: ^Frame) {
 	buf: [40]u8
 	fill(f, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, BLACK)
 	fill(f, PANEL_X, PANEL_Y, PANEL_W, 1, GRAY)
 	fill(f, PANEL_X, PANEL_Y + PANEL_H - 1, PANEL_W, 1, GRAY)
+	if g.show_board {
+		draw_board(g, f)
+		return
+	}
 	y := 32
 	draw_text_centered(f, y, "JETLAG", YELLOW, 4)
 	y += 40
@@ -194,5 +228,6 @@ draw_menu :: proc(g: ^Game, f: ^Frame) {
 	}
 	y += 4
 	draw_text_centered(f, y, itoa(buf[:], "BANK $", g.bank), GOLD, 1)
+	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 14, "B OR TAP TOP: SCORES", GRAY, 1)
 	draw_text_right(f, WIDTH - PANEL_X - 6, PANEL_Y + PANEL_H - 14, g.muted ? "M: SOUND OFF" : "M: MUTE", GRAY, 1)
 }

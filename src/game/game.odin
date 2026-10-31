@@ -38,9 +38,27 @@ Command :: enum i32 {
 	Right,
 	Start,
 	Mute,
+	Board,
 }
 
 SFX_CAP :: 8
+
+// The online top scores (LootLocker). The page fetches them and hands them over through board_add.
+BOARD_ROWS :: 10
+NAME_LEN :: 16
+
+Board_Status :: enum u8 {
+	Idle, // nothing asked for yet
+	Loading,
+	Ready,
+	Failed, // offline or the service said no; the game plays on regardless
+}
+
+Board_Entry :: struct {
+	name:     [NAME_LEN]u8,
+	name_len: int,
+	score:    int,
+}
 
 Game :: struct {
 	charms:    [ROWS]Charm,
@@ -61,6 +79,13 @@ Game :: struct {
 	sfx:       [SFX_CAP]Sound,
 	sfx_count: int,
 	rng:       u64,
+	// online scores (not persisted here; the page owns the account)
+	show_board:      bool, // the top-scores screen is up instead of the rules
+	board_status:    Board_Status,
+	board:           [BOARD_ROWS]Board_Entry,
+	board_count:     int,
+	player:          Board_Entry, // this player's name (score unused)
+	submit:          int, // a finished run's score the page should send; 0 when none is waiting
 }
 
 new_game :: proc(seed: u64) -> Game {
@@ -151,6 +176,7 @@ command :: proc(g: ^Game, c: Command) {
 		if !g.in_play {
 			reset(g)
 			g.in_play = true
+			g.show_board = false
 		}
 	case .Mute:
 		g.muted = !g.muted
@@ -158,7 +184,45 @@ command :: proc(g: ^Game, c: Command) {
 		if g.muted {
 			g.sfx_count = 0
 		}
+	case .Board:
+		if !g.in_play {
+			g.show_board = !g.show_board
+		}
 	}
+}
+
+// set_entry copies text into an entry's name, keeping printable ASCII and cutting it to NAME_LEN.
+set_entry :: proc(e: ^Board_Entry, name: []u8, score: int) {
+	e.name_len = 0
+	for c in name {
+		if e.name_len >= NAME_LEN {
+			break
+		}
+		e.name[e.name_len] = c >= 32 && c <= 126 ? c : '?'
+		e.name_len += 1
+	}
+	e.score = score
+}
+
+board_begin :: proc(g: ^Game) {
+	g.board_count = 0
+}
+
+board_add :: proc(g: ^Game, name: []u8, score: int) {
+	if g.board_count >= BOARD_ROWS {
+		return
+	}
+	set_entry(&g.board[g.board_count], name, score)
+	g.board_count += 1
+}
+
+// take_submit pops the score waiting to go online.
+take_submit :: proc(g: ^Game) -> (score: int, ok: bool) {
+	if g.submit <= 0 {
+		return
+	}
+	score, g.submit = g.submit, 0
+	return score, true
 }
 
 // turn changes direction, scoring the run so far. Pressing the way you already go does nothing.
@@ -231,5 +295,7 @@ crash :: proc(g: ^Game) {
 	g.crashed = true
 	g.lost = g.money
 	g.money = 0
+	g.show_board = false
+	g.submit = g.score
 	play_sound(g, .Death)
 }
