@@ -27,8 +27,9 @@
 		const CMD = { LEFT: 0, RIGHT: 1, START: 2, MUTE: 3, BOARD: 4 };
 		// Must match game.Board_Status (Idle, Loading, Ready, Failed).
 		const BOARD = { LOADING: 1, READY: 2, FAILED: 3 };
-		// LootLocker online top scores. This is the game's public client key, not a secret. Dev mode keeps
-		// test data apart from live; before shipping, swap in the live key and set dev to false.
+		// LootLocker online top scores. This is the game's public client key, not a secret. LootLocker no longer has
+		// separate staging and live data, so this one key (dev: true) is the live board. Every page that hosts
+		// the game (Pages, itch's html-classic.itch.zone) must be on the console's CORS Allowlist.
 		const LL = {
 			domain: "https://wwx9jy8c.api.lootlocker.com",
 			key: "dev_1beaf08c7c604e1da5d423227a0930a8",

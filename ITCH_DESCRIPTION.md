@@ -6,6 +6,8 @@ A scrolly-block endless runner. Your jet rides at the top of the screen as the b
 
 **Scoring:** every turn scores the triangular number of the ticks since your last turn, so a long straight run is worth far more than a nervous zig-zag. Coins are lost if you crash; hit a green $ to bank them for good.
 
+Online top scores are kept with LootLocker.
+
 Latest version: https://playdeezgames.github.io/jetlag/
 
 This is the one JetLag: it combines JetLag 2020 and JetLag 2023, and it runs in the browser. Free.
