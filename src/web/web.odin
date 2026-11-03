@@ -20,6 +20,7 @@ foreign host {
 SLOT_HIGH :: 0
 SLOT_BANK :: 1
 SLOT_MUTED :: 2
+SLOT_BOMBS :: 3
 
 g: game.Game
 frame: game.Frame
@@ -42,6 +43,7 @@ platform_init :: proc "c" (seed: f64) {
 	g.high = int(store_get(SLOT_HIGH))
 	g.bank = int(store_get(SLOT_BANK))
 	g.muted = store_get(SLOT_MUTED) != 0
+	g.bombs = clamp(int(store_get(SLOT_BOMBS)), 0, game.MAX_BOMBS)
 	game.render(&g, &frame)
 }
 
@@ -127,6 +129,11 @@ platform_in_play :: proc "c" () -> i32 {
 
 // platform_take_sfx returns the next sound id to play, or -1.
 @(export)
+platform_in_shop :: proc "c" () -> i32 {
+	return g.show_shop ? 1 : 0
+}
+
+@(export)
 platform_take_sfx :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	s, ok := game.take_sfx(&g)
@@ -146,4 +153,5 @@ save_if_dirty :: proc() {
 	store_set(SLOT_HIGH, f64(g.high))
 	store_set(SLOT_BANK, f64(g.bank))
 	store_set(SLOT_MUTED, g.muted ? 1 : 0)
+	store_set(SLOT_BOMBS, f64(g.bombs))
 }

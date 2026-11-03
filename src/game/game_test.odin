@@ -379,6 +379,10 @@ test_bot_survives_a_while :: proc(t: ^testing.T) {
 		crash(&g2)
 		render(&g2, f)
 		write_ppm(f, "build/shots/crashed.ppm")
+		g2.bombs = 1
+		command(&g2, .Shop)
+		render(&g2, f)
+		write_ppm(f, "build/shots/shop.ppm")
 	}
 }
 
@@ -424,4 +428,83 @@ test_board_rows_are_capped_and_names_cleaned :: proc(t: ^testing.T) {
 	board_begin(&g)
 	board_add(&g, {'o', 0xe9, 'k'}, 9)
 	testing.expect_value(t, g.board[0].name[1], u8('?'))
+}
+
+@(test)
+test_bomb_clears_every_block_and_is_spent :: proc(t: ^testing.T) {
+	g := started()
+	g.bombs = 2
+	g.charms[3], g.charms[10], g.charms[ROWS - 1] = .Block, .Block, .Block
+	g.charms[5] = .Coin
+	command(&g, .Bomb)
+	for r in 0 ..< ROWS {
+		testing.expect(t, g.charms[r] != .Block)
+	}
+	testing.expect_value(t, g.charms[5], Charm.Coin)
+	testing.expect_value(t, g.bombs, 1)
+	testing.expect(t, g.dirty)
+	testing.expect_value(t, g.sfx_count, 1)
+}
+
+@(test)
+test_bomb_kept_with_nothing_to_clear_or_none_owned :: proc(t: ^testing.T) {
+	g := started()
+	clear_charms(&g)
+	g.bombs = 1
+	command(&g, .Bomb)
+	testing.expect_value(t, g.bombs, 1)
+	g.bombs = 0
+	g.charms[4] = .Block
+	command(&g, .Bomb)
+	testing.expect_value(t, g.charms[4], Charm.Block)
+}
+
+@(test)
+test_bomb_ignored_between_runs :: proc(t: ^testing.T) {
+	g := new_game(1)
+	g.bombs = 1
+	g.charms[4] = .Block
+	command(&g, .Bomb)
+	testing.expect_value(t, g.bombs, 1)
+}
+
+@(test)
+test_shop_buys_a_bomb_from_the_bank :: proc(t: ^testing.T) {
+	g := new_game(1)
+	g.bank = 25
+	command(&g, .Buy) // not in the shop yet
+	testing.expect_value(t, g.bombs, 0)
+	command(&g, .Shop)
+	testing.expect(t, g.show_shop)
+	command(&g, .Buy)
+	command(&g, .Buy)
+	testing.expect_value(t, g.bombs, 2)
+	testing.expect_value(t, g.bank, 5)
+	command(&g, .Buy) // cannot afford
+	testing.expect_value(t, g.bombs, 2)
+	g.bank = 100
+	command(&g, .Buy)
+	command(&g, .Buy) // carrying the most
+	testing.expect_value(t, g.bombs, MAX_BOMBS)
+	testing.expect_value(t, g.bank, 90)
+}
+
+@(test)
+test_bombs_survive_a_crash_and_the_shop_closes_on_start :: proc(t: ^testing.T) {
+	g := new_game(1)
+	g.bombs = 2
+	command(&g, .Shop)
+	command(&g, .Start)
+	testing.expect(t, g.in_play)
+	testing.expect(t, !g.show_shop)
+	command(&g, .Shop) // no shop mid-run
+	testing.expect(t, !g.show_shop)
+	crash(&g)
+	testing.expect_value(t, g.bombs, 2)
+}
+
+@(test)
+test_menu_text_does_not_overlap_the_footer :: proc(t: ^testing.T) {
+	// the crash report with the longest rules block must end above the bank line, which sits above the footer
+	testing.expect(t, 106 + 11 * len(MENU_LINES) <= PANEL_Y + PANEL_H - 38)
 }

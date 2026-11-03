@@ -31,6 +31,7 @@ Sound :: enum u8 {
 	Death,
 	Coin,
 	Bank,
+	Bomb,
 }
 
 Command :: enum i32 {
@@ -39,7 +40,14 @@ Command :: enum i32 {
 	Start,
 	Mute,
 	Board,
+	Bomb, // in a run: clear every block on the screen
+	Shop, // between runs: open or close the shop
+	Buy, // in the shop: buy a bomb
 }
+
+// The shop. Bombs are bought with the bank between runs and kept until used, a crash does not take them.
+BOMB_PRICE :: 10
+MAX_BOMBS :: 3
 
 SFX_CAP :: 8
 
@@ -74,13 +82,15 @@ Game :: struct {
 	crashed:   bool, // a run has ended since the page loaded (shows the crash screen)
 	high:      int, // persisted
 	bank:      int, // persisted
+	bombs:     int, // persisted, at most MAX_BOMBS
 	muted:     bool, // persisted
-	dirty:     bool, // high, bank or muted changed; the page saves and clears it
+	dirty:     bool, // high, bank, bombs or muted changed; the page saves and clears it
 	sfx:       [SFX_CAP]Sound,
 	sfx_count: int,
 	rng:       u64,
 	// online scores (not persisted here; the page owns the account)
 	show_board:      bool, // the top-scores screen is up instead of the rules
+	show_shop:       bool, // the shop is up instead of the rules
 	board_status:    Board_Status,
 	board:           [BOARD_ROWS]Board_Entry,
 	board_count:     int,
@@ -177,6 +187,7 @@ command :: proc(g: ^Game, c: Command) {
 			reset(g)
 			g.in_play = true
 			g.show_board = false
+			g.show_shop = false
 		}
 	case .Mute:
 		g.muted = !g.muted
@@ -187,8 +198,49 @@ command :: proc(g: ^Game, c: Command) {
 	case .Board:
 		if !g.in_play {
 			g.show_board = !g.show_board
+			g.show_shop = false
+		}
+	case .Bomb:
+		use_bomb(g)
+	case .Shop:
+		if !g.in_play {
+			g.show_shop = !g.show_shop
+			g.show_board = false
+		}
+	case .Buy:
+		buy_bomb(g)
+	}
+}
+
+// use_bomb spends a bomb to clear every block on the screen. With no blocks to clear the bomb is kept.
+use_bomb :: proc(g: ^Game) {
+	if !g.in_play || g.bombs <= 0 {
+		return
+	}
+	cleared := false
+	for r in 0 ..< ROWS {
+		if g.charms[r] == .Block {
+			g.charms[r] = .None
+			cleared = true
 		}
 	}
+	if !cleared {
+		return
+	}
+	g.bombs -= 1
+	g.dirty = true
+	play_sound(g, .Bomb)
+}
+
+// buy_bomb trades bank money for a bomb, in the shop only.
+buy_bomb :: proc(g: ^Game) {
+	if g.in_play || !g.show_shop || g.bombs >= MAX_BOMBS || g.bank < BOMB_PRICE {
+		return
+	}
+	g.bank -= BOMB_PRICE
+	g.bombs += 1
+	g.dirty = true
+	play_sound(g, .Bank)
 }
 
 // set_entry copies text into an entry's name, keeping printable ASCII and cutting it to NAME_LEN.

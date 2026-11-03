@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes assets/sfx/coin.wav and bank.wav: short square-wave blips (the turn and death sounds are the originals from JetLag 2017).
+"""Writes assets/sfx/coin.wav, bank.wav and bomb.wav: short square-wave blips (the turn and death sounds are the originals from JetLag 2017).
 Usage: tools/gen_sfx.py   (stdlib only)"""
 import math, os, struct, wave
 
@@ -22,3 +22,4 @@ def write(name, parts):
 
 write("coin.wav", [tone(988, 50), tone(1319, 90)])
 write("bank.wav", [tone(523, 70), tone(659, 70), tone(784, 70), tone(1047, 160)])
+write("bomb.wav", [tone(220, 60, 0.3), tone(165, 60, 0.3), tone(110, 90, 0.3), tone(82, 160, 0.3)])
