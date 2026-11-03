@@ -386,7 +386,9 @@ test_bot_survives_a_while :: proc(t: ^testing.T) {
 		render(&g2, f)
 		write_ppm(f, "build/shots/crashed.ppm")
 		g2.bombs = 1
+		g2.bomb_level = 1
 		command(&g2, .Shop)
+		command(&g2, .Down)
 		render(&g2, f)
 		write_ppm(f, "build/shots/shop.ppm")
 	}
@@ -437,23 +439,28 @@ test_board_rows_are_capped_and_names_cleaned :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_bomb_clears_every_block_and_is_spent :: proc(t: ^testing.T) {
+test_bomb_turns_every_block_into_a_coin_and_is_spent :: proc(t: ^testing.T) {
 	g := started()
 	g.bombs = 2
 	g.charms[3], g.charms[10], g.charms[ROWS - 1] = .Block, .Block, .Block
-	g.charms[5] = .Coin
+	g.charms[5], g.charms[7] = .Coin, .Bank
+	g.columns[3] = 9
 	command(&g, .Bomb)
 	for r in 0 ..< ROWS {
 		testing.expect(t, g.charms[r] != .Block)
 	}
-	testing.expect_value(t, g.charms[5], Charm.Coin)
+	for r in ([?]int{3, 5, 10, ROWS - 1}) {
+		testing.expect_value(t, g.charms[r], Charm.Coin)
+	}
+	testing.expect_value(t, g.charms[7], Charm.Bank)
+	testing.expect_value(t, g.columns[3], i8(9)) // the coin stays where the block was
 	testing.expect_value(t, g.bombs, 1)
 	testing.expect(t, g.dirty)
 	testing.expect_value(t, g.sfx_count, 1)
 }
 
 @(test)
-test_bomb_kept_with_nothing_to_clear_or_none_owned :: proc(t: ^testing.T) {
+test_bomb_kept_with_nothing_to_convert_or_none_owned :: proc(t: ^testing.T) {
 	g := started()
 	clear_charms(&g)
 	g.bombs = 1
@@ -491,7 +498,7 @@ test_shop_buys_a_bomb_from_the_bank :: proc(t: ^testing.T) {
 	g.bank = 100
 	command(&g, .Buy)
 	command(&g, .Buy) // carrying the most
-	testing.expect_value(t, g.bombs, MAX_BOMBS)
+	testing.expect_value(t, g.bombs, BASE_BOMBS)
 	testing.expect_value(t, g.bank, 90)
 }
 
@@ -513,4 +520,48 @@ test_bombs_survive_a_crash_and_the_shop_closes_on_start :: proc(t: ^testing.T) {
 test_menu_text_does_not_overlap_the_footer :: proc(t: ^testing.T) {
 	// the crash report with the longest rules block must end above the bank line, which sits above the footer
 	testing.expect(t, 106 + 11 * len(MENU_LINES) <= PANEL_Y + PANEL_H - 38)
+}
+
+@(test)
+test_capacity_upgrades_cost_double_and_stop_at_the_cap :: proc(t: ^testing.T) {
+	g := new_game(1)
+	g.bank = 1_000_000
+	command(&g, .Shop)
+	command(&g, .Down)
+	testing.expect_value(t, g.shop_sel, Shop_Item.Capacity)
+	price, ok := capacity_price(&g)
+	testing.expect(t, ok)
+	testing.expect_value(t, price, 25)
+	prev := g.bank
+	for level in 1 ..= MAX_BOMB_LEVEL {
+		command(&g, .Buy)
+		testing.expect_value(t, g.bomb_level, level)
+		testing.expect_value(t, prev - g.bank, 25 << uint(level - 1))
+		prev = g.bank
+	}
+	command(&g, .Buy) // maxed
+	testing.expect_value(t, g.bomb_level, MAX_BOMB_LEVEL)
+	testing.expect_value(t, g.bank, prev)
+	_, ok = capacity_price(&g)
+	testing.expect(t, !ok)
+	testing.expect_value(t, max_bombs(&g), 9)
+}
+
+@(test)
+test_capacity_needs_the_money_and_lets_you_carry_more :: proc(t: ^testing.T) {
+	g := new_game(1)
+	g.bank = 24
+	command(&g, .Shop)
+	command(&g, .Down)
+	command(&g, .Buy)
+	testing.expect_value(t, g.bomb_level, 0)
+	g.bank = 25 + 10 * 4
+	command(&g, .Buy)
+	testing.expect_value(t, g.bank, 40)
+	command(&g, .Up)
+	for _ in 0 ..< 6 {
+		command(&g, .Buy)
+	}
+	testing.expect_value(t, g.bombs, 4) // 3 base + 1 upgrade; 40 buys four, capacity is 4
+	testing.expect_value(t, g.bank, 0)
 }

@@ -40,14 +40,23 @@ Command :: enum i32 {
 	Start,
 	Mute,
 	Board,
-	Bomb, // in a run: clear every block on the screen
+	Bomb, // in a run: turn every block on the screen into a coin
 	Shop, // between runs: open or close the shop
-	Buy, // in the shop: buy a bomb
+	Buy, // in the shop: buy the selected item
+	Up, // in the shop: move the cursor
+	Down,
 }
 
 // The shop. Bombs are bought with the bank between runs and kept until used, a crash does not take them.
 BOMB_PRICE :: 10
-MAX_BOMBS :: 3
+BASE_BOMBS :: 3 // what you can carry before any upgrade
+MAX_BOMB_LEVEL :: 6 // upgrades: capacity tops out at BASE_BOMBS + MAX_BOMB_LEVEL
+CAPACITY_BASE_PRICE :: 25 // the first upgrade; each one costs double the last
+
+Shop_Item :: enum u8 {
+	Bomb,
+	Capacity,
+}
 
 SFX_CAP :: 8
 
@@ -83,7 +92,8 @@ Game :: struct {
 	crashed:   bool, // a run has ended since the page loaded (shows the crash screen)
 	high:      int, // persisted
 	bank:      int, // persisted
-	bombs:     int, // persisted, at most MAX_BOMBS
+	bombs:     int, // persisted, at most max_bombs
+	bomb_level: int, // persisted, capacity upgrades bought
 	muted:     bool, // persisted
 	dirty:     bool, // high, bank, bombs or muted changed; the page saves and clears it
 	sfx:       [SFX_CAP]Sound,
@@ -92,6 +102,7 @@ Game :: struct {
 	// online scores (not persisted here; the page owns the account)
 	show_board:      bool, // the top-scores screen is up instead of the rules
 	show_shop:       bool, // the shop is up instead of the rules
+	shop_sel:        Shop_Item, // the shop's cursor
 	board_status:    Board_Status,
 	board:           [BOARD_ROWS]Board_Entry,
 	board_count:     int,
@@ -210,23 +221,31 @@ command :: proc(g: ^Game, c: Command) {
 			g.show_board = false
 		}
 	case .Buy:
-		buy_bomb(g)
+		buy(g)
+	case .Up:
+		if g.show_shop && !g.in_play {
+			g.shop_sel = .Bomb
+		}
+	case .Down:
+		if g.show_shop && !g.in_play {
+			g.shop_sel = .Capacity
+		}
 	}
 }
 
-// use_bomb spends a bomb to clear every block on the screen. With no blocks to clear the bomb is kept.
+// use_bomb spends a bomb to turn every block on the screen into a coin where it stands. With no blocks the bomb is kept.
 use_bomb :: proc(g: ^Game) {
 	if !g.in_play || g.bombs <= 0 {
 		return
 	}
-	cleared := false
+	converted := false
 	for r in 0 ..< ROWS {
 		if g.charms[r] == .Block {
-			g.charms[r] = .None
-			cleared = true
+			g.charms[r] = .Coin
+			converted = true
 		}
 	}
-	if !cleared {
+	if !converted {
 		return
 	}
 	g.bombs -= 1
@@ -234,13 +253,41 @@ use_bomb :: proc(g: ^Game) {
 	play_sound(g, .Bomb)
 }
 
-// buy_bomb trades bank money for a bomb, in the shop only.
-buy_bomb :: proc(g: ^Game) {
-	if g.in_play || !g.show_shop || g.bombs >= MAX_BOMBS || g.bank < BOMB_PRICE {
+// max_bombs is how many bombs you can carry.
+max_bombs :: proc(g: ^Game) -> int {
+	return BASE_BOMBS + g.bomb_level
+}
+
+// capacity_price is the cost of the next capacity upgrade; ok is false once they are all bought.
+capacity_price :: proc(g: ^Game) -> (price: int, ok: bool) {
+	if g.bomb_level >= MAX_BOMB_LEVEL {
+		return 0, false
+	}
+	return CAPACITY_BASE_PRICE << uint(g.bomb_level), true
+}
+
+// buy trades bank money for the item under the shop's cursor, in the shop only.
+buy :: proc(g: ^Game) {
+	if g.in_play || !g.show_shop {
 		return
 	}
-	g.bank -= BOMB_PRICE
-	g.bombs += 1
+	price: int
+	switch g.shop_sel {
+	case .Bomb:
+		price = BOMB_PRICE
+		if g.bombs >= max_bombs(g) || g.bank < price {
+			return
+		}
+		g.bombs += 1
+	case .Capacity:
+		ok: bool
+		price, ok = capacity_price(g)
+		if !ok || g.bank < price {
+			return
+		}
+		g.bomb_level += 1
+	}
+	g.bank -= price
 	g.dirty = true
 	play_sound(g, .Bank)
 }

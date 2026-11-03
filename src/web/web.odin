@@ -21,6 +21,7 @@ SLOT_HIGH :: 0
 SLOT_BANK :: 1
 SLOT_MUTED :: 2
 SLOT_BOMBS :: 3
+SLOT_BOMB_LEVEL :: 4
 
 g: game.Game
 frame: game.Frame
@@ -43,7 +44,8 @@ platform_init :: proc "c" (seed: f64) {
 	g.high = int(store_get(SLOT_HIGH))
 	g.bank = int(store_get(SLOT_BANK))
 	g.muted = store_get(SLOT_MUTED) != 0
-	g.bombs = clamp(int(store_get(SLOT_BOMBS)), 0, game.MAX_BOMBS)
+	g.bomb_level = clamp(int(store_get(SLOT_BOMB_LEVEL)), 0, game.MAX_BOMB_LEVEL)
+	g.bombs = clamp(int(store_get(SLOT_BOMBS)), 0, game.max_bombs(&g))
 	game.render(&g, &frame)
 }
 
@@ -154,4 +156,5 @@ save_if_dirty :: proc() {
 	store_set(SLOT_BANK, f64(g.bank))
 	store_set(SLOT_MUTED, g.muted ? 1 : 0)
 	store_set(SLOT_BOMBS, f64(g.bombs))
+	store_set(SLOT_BOMB_LEVEL, f64(g.bomb_level))
 }

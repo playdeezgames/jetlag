@@ -207,23 +207,56 @@ draw_board :: proc(g: ^Game, f: ^Frame) {
 }
 
 draw_shop :: proc(g: ^Game, f: ^Frame) {
-	buf: [40]u8
+	buf, buf2: [40]u8
 	draw_text_centered(f, 30, "SHOP", YELLOW, 2)
-	draw_text_centered(f, 54, itoa(buf[:], "BANK $", g.bank), GOLD, 1)
-	draw_text_centered(f, 84, itoa(buf[:], "BOMB  $", BOMB_PRICE), WHITE, 2)
-	draw_text_centered(f, 104, itoa(buf[:], "YOU HAVE ", g.bombs), GRAY, 1)
-	draw_text_centered(f, 118, "Z OR SPACE IN A RUN CLEARS ALL BLOCKS", GRAY, 1)
-	draw_text_centered(f, 130, "(TWO-FINGER TAP ON A PHONE)", GRAY, 1)
-	switch {
-	case g.bombs >= MAX_BOMBS:
-		draw_text_centered(f, 152, itoa(buf[:], "YOU CAN CARRY ", MAX_BOMBS), RED, 1)
-	case g.bank < BOMB_PRICE:
-		draw_text_centered(f, 152, "NOT ENOUGH IN THE BANK", RED, 1)
-	case:
-		draw_text_centered(f, 152, "1 OR TAP BELOW: BUY", WHITE, 1)
+	draw_text_centered(f, 52, itoa(buf[:], "BANK $", g.bank), GOLD, 1)
+	draw_text_centered(f, 70, "Z OR SPACE IN A RUN TURNS BLOCKS TO COINS", GRAY, 1)
+	draw_text_centered(f, 82, "(TWO-FINGER TAP ON A PHONE)", GRAY, 1)
+
+	// The two rows sit under the page's touch bands: below 40% of the height, split at 50%.
+	bomb_row := itoa(buf[:], "BOMB  $", BOMB_PRICE)
+	draw_shop_row(f, 106, g.shop_sel == .Bomb, bomb_row, itoa(buf2[:], "HAVE ", g.bombs))
+	if price, ok := capacity_price(g); ok {
+		draw_shop_row(f, 124, g.shop_sel == .Capacity, itoa(buf[:], "CARRY MORE  $", price), itoa(buf2[:], "NOW ", max_bombs(g)))
+	} else {
+		draw_shop_row(f, 124, g.shop_sel == .Capacity, "CARRY MORE  MAXED", itoa(buf2[:], "NOW ", max_bombs(g)))
 	}
+
+	status: string
+	switch g.shop_sel {
+	case .Bomb:
+		switch {
+		case g.bombs >= max_bombs(g):
+			status = "YOU ARE CARRYING THE MOST YOU CAN"
+		case g.bank < BOMB_PRICE:
+			status = "NOT ENOUGH IN THE BANK"
+		}
+	case .Capacity:
+		price, ok := capacity_price(g)
+		switch {
+		case !ok:
+			status = "YOU CANNOT CARRY ANY MORE"
+		case g.bank < price:
+			status = "NOT ENOUGH IN THE BANK"
+		}
+	}
+	if status != "" {
+		draw_text_centered(f, 148, status, RED, 1)
+	} else {
+		draw_text_centered(f, 148, "E OR 1 OR TAP A ROW: BUY", WHITE, 1)
+	}
+	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 26, "UP / DOWN: PICK", GRAY, 1)
 	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 14, "S OR TAP TOP: BACK", GRAY, 1)
 	draw_text_right(f, WIDTH - PANEL_X - 6, PANEL_Y + PANEL_H - 14, "Z: FLY", GRAY, 1)
+}
+
+draw_shop_row :: proc(f: ^Frame, y: int, selected: bool, left, right: string) {
+	color: u32 = selected ? WHITE : GRAY
+	if selected {
+		draw_text(f, PANEL_X + 40, y, ">", YELLOW, 1)
+	}
+	draw_text(f, PANEL_X + 52, y, left, color, 1)
+	draw_text_right(f, WIDTH - PANEL_X - 40, y, right, color, 1)
 }
 
 draw_menu :: proc(g: ^Game, f: ^Frame) {

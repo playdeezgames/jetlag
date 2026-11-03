@@ -23,8 +23,8 @@
 	(function () {
 		"use strict";
 		const W = 320, H = 240;
-		// Must match src/game: Command (Left, Right, Start, Mute, Board, Bomb, Shop, Buy) and Sound (Turn, Death, Coin, Bank, Bomb).
-		const CMD = { LEFT: 0, RIGHT: 1, START: 2, MUTE: 3, BOARD: 4, BOMB: 5, SHOP: 6, BUY: 7, NONE: -1 };
+		// Must match src/game: Command (Left, Right, Start, Mute, Board, Bomb, Shop, Buy, Up, Down) and Sound (Turn, Death, Coin, Bank, Bomb).
+		const CMD = { LEFT: 0, RIGHT: 1, START: 2, MUTE: 3, BOARD: 4, BOMB: 5, SHOP: 6, BUY: 7, UP: 8, DOWN: 9, NONE: -1 };
 		// Must match game.Board_Status (Idle, Loading, Ready, Failed).
 		const BOARD = { LOADING: 1, READY: 2, FAILED: 3 };
 		// LootLocker online top scores. This is the game's public client key, not a secret. LootLocker no longer has
@@ -39,7 +39,7 @@
 			count: 10,
 		};
 		const SOUND_FILES = ["sfx/turn.wav", "sfx/death.wav", "sfx/coin.wav", "sfx/bank.wav", "sfx/bomb.wav"];
-		const KEY_SLOTS = ["jetlag.high", "jetlag.bank", "jetlag.muted", "jetlag.bombs"];
+		const KEY_SLOTS = ["jetlag.high", "jetlag.bank", "jetlag.muted", "jetlag.bombs", "jetlag.bomblevel"];
 		const NAME_LEN = 16; // game.NAME_LEN
 
 		const screen = document.getElementById("screen");
@@ -162,7 +162,7 @@
 		const KEYS = {
 			ArrowLeft: CMD.LEFT, KeyA: CMD.LEFT, ArrowRight: CMD.RIGHT, KeyD: CMD.RIGHT,
 			KeyZ: CMD.START, Space: CMD.START, Enter: CMD.START, KeyM: CMD.MUTE, KeyB: CMD.BOARD,
-			KeyS: CMD.SHOP, Digit1: CMD.BUY, Numpad1: CMD.BUY,
+			KeyS: CMD.SHOP, Digit1: CMD.BUY, Numpad1: CMD.BUY, KeyE: CMD.BUY, ArrowUp: CMD.UP, KeyW: CMD.UP, ArrowDown: CMD.DOWN,
 		};
 		window.addEventListener("keydown", e => {
 			if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -186,7 +186,8 @@
 				const y = (e.clientY - r.top) / r.height;
 				if (y < 0.2) send(CMD.BOARD);
 				else if (y < 0.4) send(CMD.SHOP);
-				else send(ex.platform_in_shop() ? (y > 0.6 ? CMD.BUY : CMD.NONE) : CMD.START);
+				else if (!ex.platform_in_shop()) send(CMD.START);
+				else if (y < 0.65) { send(y < 0.5 ? CMD.UP : CMD.DOWN); send(CMD.BUY); } // the shop's two rows
 				return;
 			}
 			if (another) { send(CMD.BOMB); return; }
@@ -195,7 +196,7 @@
 		const lift = e => touches.delete(e.pointerId);
 		screen.addEventListener("pointerup", lift);
 		screen.addEventListener("pointercancel", lift);
-		let padPrev = { left: false, right: false, start: false, board: false, x: false, b: false };
+		let padPrev = { left: false, right: false, start: false, board: false, x: false, b: false, up: false, down: false };
 		function pollPad() {
 			const pads = navigator.getGamepads ? navigator.getGamepads() : [];
 			for (const p of pads) {
@@ -207,10 +208,14 @@
 					board: p.buttons[3].pressed,
 					x: p.buttons[2].pressed,
 					b: p.buttons[1].pressed,
+					up: p.buttons[12].pressed || p.axes[1] < -0.5,
+					down: p.buttons[13].pressed || p.axes[1] > 0.5,
 				};
 				// X drops a bomb in a run and opens the shop between; B buys in the shop.
 				if (now.x && !padPrev.x) send(ex.platform_in_play() ? CMD.BOMB : CMD.SHOP);
 				if (now.b && !padPrev.b) send(CMD.BUY);
+				if (now.up && !padPrev.up) send(CMD.UP);
+				if (now.down && !padPrev.down) send(CMD.DOWN);
 				if (now.board && !padPrev.board) send(CMD.BOARD);
 				if (now.left && !padPrev.left) send(CMD.LEFT);
 				if (now.right && !padPrev.right) send(CMD.RIGHT);
