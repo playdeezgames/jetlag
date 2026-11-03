@@ -13,6 +13,6 @@ JetLag: an Odin game that targets `js_wasm32` (GitHub Pages) and nothing else. T
 ## Rules
 
 - Do not push, enable Pages, or ship to itch.io unless the user says so ("push" is `git push`; "ship" is itch.io).
-- Do not describe or "fix" the deliberate design as a problem: one charm per row, the triangular turn score, money lost on a crash.
+- Do not describe or "fix" the deliberate design as a problem: one charm per row, the triangular turn score, a crash banking only half the run's money (rounded down; changed from losing all of it on November 3, 2026).
 - Anything an AI agent posts on itch.io must say it was posted by an AI agent.
 - This replaces JetLag 2020 and JetLag 2023. Do not delete those repos or itch pages; that is the user's call.

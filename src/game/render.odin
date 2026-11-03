@@ -102,6 +102,14 @@ itoa :: proc(buf: []u8, prefix: string, n: int) -> string {
 	return string(buf[:pos])
 }
 
+digit_count :: proc(n: int) -> int {
+	count := 1
+	for v := n / 10; v > 0; v /= 10 {
+		count += 1
+	}
+	return count
+}
+
 draw_cell :: proc(f: ^Frame, column, row: int, color: u32) {
 	fill(f, column * CELL, row * CELL, CELL, CELL, color)
 }
@@ -164,7 +172,7 @@ MENU_LINES :: [?]string{
 	"Z, SPACE OR TAP TO FLY",
 	"LEFT / RIGHT, A / D OR TAP A SIDE TO TURN",
 	"A LONG RUN BEFORE A TURN SCORES MORE",
-	"COINS ARE LOST IF YOU CRASH",
+	"A CRASH KEEPS HALF YOUR COINS",
 	"HIT A GREEN $ TO BANK THEM",
 }
 
@@ -236,8 +244,13 @@ draw_menu :: proc(g: ^Game, f: ^Frame) {
 	if g.crashed {
 		draw_text_centered(f, 66, "CRASHED", RED, 2)
 		draw_text_centered(f, 83, itoa(buf[:], "SCORE ", g.score), WHITE, 1)
-		if g.lost > 0 {
-			draw_text_centered(f, 94, itoa(buf[:], "LOST $", g.lost), GOLD, 1)
+		if g.kept > 0 || g.lost > 0 {
+			buf2: [40]u8
+			text := itoa(buf[:], "KEPT $", g.kept)
+			w := text_width(text, 1) + 16 + text_width(itoa(buf2[:], "LOST $", g.lost), 1)
+			x := (WIDTH - w) / 2
+			draw_text(f, x, 94, text, GOLD, 1)
+			draw_text(f, x + text_width(text, 1) + 16, 94, string(buf2[:len("LOST $") + digit_count(g.lost)]), RED, 1)
 		}
 	} else {
 		draw_text_centered(f, 72, "KEEP THE TAIL OFF THE BLOCKS", GRAY, 1)

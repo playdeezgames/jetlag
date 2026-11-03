@@ -137,15 +137,21 @@ test_bank_deposits_money :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_crash_loses_money :: proc(t: ^testing.T) {
-	g := started()
-	g.money = 4
-	clear_charms(&g)
-	place_next(&g, .Block, g.tail[0] + 1)
-	step(&g)
-	testing.expect_value(t, g.money, 0)
-	testing.expect_value(t, g.lost, 4)
-	testing.expect_value(t, g.bank, 0)
+test_crash_keeps_half_the_money_rounded_down :: proc(t: ^testing.T) {
+	for pair in ([?][2]int{{0, 0}, {1, 0}, {4, 2}, {5, 2}}) {
+		money, kept := pair[0], pair[1]
+		g := started()
+		g.bank = 7
+		g.money = money
+		clear_charms(&g)
+		place_next(&g, .Block, g.tail[0] + 1)
+		step(&g)
+		testing.expect_value(t, g.money, 0)
+		testing.expect_value(t, g.kept, kept)
+		testing.expect_value(t, g.lost, money - kept)
+		testing.expect_value(t, g.bank, 7 + kept)
+		testing.expect_value(t, g.dirty, kept > 0)
+	}
 }
 
 @(test)

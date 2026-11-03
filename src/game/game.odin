@@ -76,8 +76,9 @@ Game :: struct {
 	timer:     f32,
 	run:       int, // ticks since the last turn
 	score:     int,
-	money:     int, // this run, lost on a crash unless banked
+	money:     int, // this run; a crash banks half of it (rounded down) and loses the rest
 	lost:      int, // the money the last crash cost
+	kept:      int, // the money the last crash banked
 	in_play:   bool,
 	crashed:   bool, // a run has ended since the page loaded (shows the crash screen)
 	high:      int, // persisted
@@ -121,6 +122,7 @@ reset :: proc(g: ^Game) {
 	g.score = 0
 	g.money = 0
 	g.lost = 0
+	g.kept = 0
 }
 
 next_u32 :: proc(g: ^Game) -> u32 {
@@ -345,8 +347,13 @@ step :: proc(g: ^Game) {
 crash :: proc(g: ^Game) {
 	g.in_play = false
 	g.crashed = true
-	g.lost = g.money
+	g.kept = g.money / 2
+	g.lost = g.money - g.kept
 	g.money = 0
+	if g.kept > 0 {
+		g.bank += g.kept
+		g.dirty = true
+	}
 	g.show_board = false
 	g.submit = g.score
 	play_sound(g, .Death)
