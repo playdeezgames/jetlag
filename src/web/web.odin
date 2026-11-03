@@ -67,9 +67,28 @@ platform_command :: proc "c" (c: i32) {
 	if c < 0 || c > i32(max(game.Command)) {
 		return
 	}
-	was := g.show_board
+	was := g.screen
 	game.command(&g, game.Command(c))
-	if g.show_board && !was {
+	after_input(was)
+}
+
+// platform_tap is a touch or click at (x, y) on the 320 by 240 picture.
+@(export)
+platform_tap :: proc "c" (x, y: i32) {
+	context = runtime.default_context()
+	was := g.screen
+	game.tap(&g, int(x), int(y))
+	after_input(was)
+}
+
+// platform_touch tells the game a finger has been used, so it draws the touch controls.
+@(export)
+platform_touch :: proc "c" () {
+	g.touch = true
+}
+
+after_input :: proc(was: game.Screen) {
+	if g.screen == .Scores && was != .Scores {
 		refresh_board()
 	}
 	save_if_dirty()
@@ -130,11 +149,6 @@ platform_in_play :: proc "c" () -> i32 {
 }
 
 // platform_take_sfx returns the next sound id to play, or -1.
-@(export)
-platform_in_shop :: proc "c" () -> i32 {
-	return g.show_shop ? 1 : 0
-}
-
 @(export)
 platform_take_sfx :: proc "c" () -> i32 {
 	context = runtime.default_context()

@@ -158,22 +158,14 @@ render :: proc(g: ^Game, f: ^Frame) {
 	}
 
 	if g.in_play {
+		if bomb_button_shown(g) {
+			fill(f, BOMB_BTN_X, BOMB_BTN_Y, BOMB_BTN_W, BOMB_BTN_H, RED)
+			fill(f, BOMB_BTN_X + 1, BOMB_BTN_Y + 1, BOMB_BTN_W - 2, BOMB_BTN_H - 2, BLACK)
+			draw_text_centered_in(f, BOMB_BTN_X, BOMB_BTN_W, BOMB_BTN_Y + 3, itoa(buf[:], "BOMB ", g.bombs), WHITE, 1)
+		}
 		return
 	}
 	draw_menu(g, f)
-}
-
-PANEL_X :: 16
-PANEL_Y :: 24
-PANEL_W :: WIDTH - 2 * PANEL_X
-PANEL_H :: 176
-
-MENU_LINES :: [?]string{
-	"Z, SPACE OR TAP TO FLY",
-	"LEFT / RIGHT, A / D OR TAP A SIDE TO TURN",
-	"A LONG RUN BEFORE A TURN SCORES MORE",
-	"A CRASH KEEPS HALF YOUR COINS",
-	"HIT A GREEN $ TO BANK THEM",
 }
 
 draw_board :: proc(g: ^Game, f: ^Frame) {
@@ -202,8 +194,47 @@ draw_board :: proc(g: ^Game, f: ^Frame) {
 	if g.player.name_len > 0 {
 		draw_text_centered(f, PANEL_Y + PANEL_H - 28, string(g.player.name[:g.player.name_len]), GOLD, 1)
 	}
-	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 14, "B OR TAP TOP: BACK", GRAY, 1)
-	draw_text_right(f, WIDTH - PANEL_X - 6, PANEL_Y + PANEL_H - 14, "Z: FLY", GRAY, 1)
+	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 12, "Z OR X: BACK", GRAY, 1)
+	draw_back(f)
+}
+
+MENU_LABELS :: [Menu_Item]string{
+	.Start  = "START GAME",
+	.Shop   = "SHOP",
+	.Scores = "HIGH SCORES",
+	.Help   = "HOW TO PLAY",
+	.Sound  = "SOUND",
+}
+
+HELP_LINES :: [?]string{
+	"LEFT / RIGHT, A / D OR TAP A SIDE TO TURN",
+	"A LONG RUN BEFORE A TURN SCORES MORE",
+	"Z OR SPACE DROPS A BOMB: BLOCKS TO COINS",
+	"A CRASH KEEPS HALF YOUR COINS",
+	"HIT A GREEN $ TO BANK THEM",
+}
+
+// draw_back is the BACK button of the screens a menu opens (X or Esc does the same).
+draw_back :: proc(f: ^Frame) {
+	fill(f, BACK_X, BACK_Y, BACK_W, BACK_H, GRAY)
+	fill(f, BACK_X + 1, BACK_Y + 1, BACK_W - 2, BACK_H - 2, BLACK)
+	draw_text_centered_in(f, BACK_X, BACK_W, BACK_Y + 3, "BACK", WHITE, 1)
+}
+
+draw_text_centered_in :: proc(f: ^Frame, x, w, y: int, text: string, color: u32, scale: int) {
+	draw_text(f, x + (w - text_width(text, scale)) / 2, y, text, color, scale)
+}
+
+draw_help :: proc(f: ^Frame) {
+	draw_text_centered(f, 30, "HOW TO PLAY", YELLOW, 2)
+	lines := HELP_LINES
+	y := 62
+	for line in lines {
+		draw_text_centered(f, y, line, GRAY, 1)
+		y += 14
+	}
+	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 12, "Z OR X: BACK", GRAY, 1)
+	draw_back(f)
 }
 
 draw_shop :: proc(g: ^Game, f: ^Frame) {
@@ -211,15 +242,14 @@ draw_shop :: proc(g: ^Game, f: ^Frame) {
 	draw_text_centered(f, 30, "SHOP", YELLOW, 2)
 	draw_text_centered(f, 52, itoa(buf[:], "BANK $", g.bank), GOLD, 1)
 	draw_text_centered(f, 70, "Z OR SPACE IN A RUN TURNS BLOCKS TO COINS", GRAY, 1)
-	draw_text_centered(f, 82, "(TWO-FINGER TAP ON A PHONE)", GRAY, 1)
+	draw_text_centered(f, 82, "(OR THE BOMB BUTTON ON A PHONE)", GRAY, 1)
 
-	// The two rows sit under the page's touch bands: below 40% of the height, split at 50%.
-	bomb_row := itoa(buf[:], "BOMB  $", BOMB_PRICE)
-	draw_shop_row(f, 106, g.shop_sel == .Bomb, bomb_row, itoa(buf2[:], "HAVE ", g.bombs))
+	ys := SHOP_ROW_Y
+	draw_shop_row(f, ys[.Bomb], g.shop_sel == .Bomb, itoa(buf[:], "BOMB  $", BOMB_PRICE), itoa(buf2[:], "HAVE ", g.bombs))
 	if price, ok := capacity_price(g); ok {
-		draw_shop_row(f, 124, g.shop_sel == .Capacity, itoa(buf[:], "CARRY MORE  $", price), itoa(buf2[:], "NOW ", max_bombs(g)))
+		draw_shop_row(f, ys[.Capacity], g.shop_sel == .Capacity, itoa(buf[:], "CARRY MORE  $", price), itoa(buf2[:], "NOW ", max_bombs(g)))
 	} else {
-		draw_shop_row(f, 124, g.shop_sel == .Capacity, "CARRY MORE  MAXED", itoa(buf2[:], "NOW ", max_bombs(g)))
+		draw_shop_row(f, ys[.Capacity], g.shop_sel == .Capacity, "CARRY MORE  MAXED", itoa(buf2[:], "NOW ", max_bombs(g)))
 	}
 
 	status: string
@@ -243,11 +273,10 @@ draw_shop :: proc(g: ^Game, f: ^Frame) {
 	if status != "" {
 		draw_text_centered(f, 148, status, RED, 1)
 	} else {
-		draw_text_centered(f, 148, "E OR 1 OR TAP A ROW: BUY", WHITE, 1)
+		draw_text_centered(f, 148, "Z OR TAP A ROW: BUY", WHITE, 1)
 	}
-	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 26, "UP / DOWN: PICK", GRAY, 1)
-	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 14, "S OR TAP TOP: BACK", GRAY, 1)
-	draw_text_right(f, WIDTH - PANEL_X - 6, PANEL_Y + PANEL_H - 14, "Z: FLY", GRAY, 1)
+	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 12, "UP / DOWN: PICK   X: BACK", GRAY, 1)
+	draw_back(f)
 }
 
 draw_shop_row :: proc(f: ^Frame, y: int, selected: bool, left, right: string) {
@@ -264,15 +293,19 @@ draw_menu :: proc(g: ^Game, f: ^Frame) {
 	fill(f, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, BLACK)
 	fill(f, PANEL_X, PANEL_Y, PANEL_W, 1, GRAY)
 	fill(f, PANEL_X, PANEL_Y + PANEL_H - 1, PANEL_W, 1, GRAY)
-	if g.show_board {
+	switch g.screen {
+	case .Scores:
 		draw_board(g, f)
 		return
-	}
-	if g.show_shop {
+	case .Shop:
 		draw_shop(g, f)
 		return
+	case .Help:
+		draw_help(f)
+		return
+	case .Menu:
 	}
-	// Rows from the top of the panel down: logo, crash report (or tagline), the rules, the bank, then the footer.
+	// Rows from the top of the panel down: logo, crash report (or tagline), the menu, the bank, then the hint.
 	draw_text_centered(f, 30, "JETLAG", YELLOW, 4)
 	if g.crashed {
 		draw_text_centered(f, 66, "CRASHED", RED, 2)
@@ -288,14 +321,19 @@ draw_menu :: proc(g: ^Game, f: ^Frame) {
 	} else {
 		draw_text_centered(f, 72, "KEEP THE TAIL OFF THE BLOCKS", GRAY, 1)
 	}
-	lines := MENU_LINES
-	y := 106
-	for line, i in lines {
-		draw_text_centered(f, y, line, i == 0 ? WHITE : GRAY, 1)
-		y += 11
+	labels := MENU_LABELS
+	for item in Menu_Item {
+		y := MENU_TOP + int(item) * MENU_ROW
+		selected := item == g.menu_sel
+		label := labels[item]
+		if item == .Sound {
+			label = g.muted ? "SOUND: OFF" : "SOUND: ON"
+		}
+		if selected {
+			draw_text(f, WIDTH / 2 - 60, y, ">", YELLOW, 1)
+		}
+		draw_text_centered(f, y, label, selected ? WHITE : GRAY, 1)
 	}
-	draw_text_centered(f, PANEL_Y + PANEL_H - 38, itoa(buf[:], "BANK $", g.bank), GOLD, 1)
-	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 26, "B OR TAP TOP: SCORES", GRAY, 1)
-	draw_text(f, PANEL_X + 6, PANEL_Y + PANEL_H - 14, "S OR TAP 2ND BAND: SHOP", GRAY, 1)
-	draw_text_right(f, WIDTH - PANEL_X - 6, PANEL_Y + PANEL_H - 14, g.muted ? "M: SOUND OFF" : "M: MUTE", GRAY, 1)
+	draw_text_centered(f, PANEL_Y + PANEL_H - 28, itoa(buf[:], "BANK $", g.bank), GOLD, 1)
+	draw_text_centered(f, PANEL_Y + PANEL_H - 14, "UP / DOWN: PICK   Z: OK", GRAY, 1)
 }

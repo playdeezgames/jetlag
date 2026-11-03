@@ -34,17 +34,31 @@ Sound :: enum u8 {
 	Bomb,
 }
 
+// The order must match the page's CMD. During a run Left and Right turn and Ok drops a bomb; between runs the
+// arrows move a cursor, Ok activates and Cancel goes back.
 Command :: enum i32 {
 	Left,
 	Right,
-	Start,
-	Mute,
-	Board,
-	Bomb, // in a run: turn every block on the screen into a coin
-	Shop, // between runs: open or close the shop
-	Buy, // in the shop: buy the selected item
-	Up, // in the shop: move the cursor
+	Up,
 	Down,
+	Ok,
+	Cancel,
+}
+
+// What is on the panel between runs.
+Screen :: enum u8 {
+	Menu,
+	Shop,
+	Scores,
+	Help,
+}
+
+Menu_Item :: enum u8 {
+	Start,
+	Shop,
+	Scores,
+	Help,
+	Sound,
 }
 
 // The shop. Bombs are bought with the bank between runs and kept until used, a crash does not take them.
@@ -100,9 +114,10 @@ Game :: struct {
 	sfx_count: int,
 	rng:       u64,
 	// online scores (not persisted here; the page owns the account)
-	show_board:      bool, // the top-scores screen is up instead of the rules
-	show_shop:       bool, // the shop is up instead of the rules
+	screen:          Screen, // between runs
+	menu_sel:        Menu_Item, // the menu's cursor
 	shop_sel:        Shop_Item, // the shop's cursor
+	touch:           bool, // the page has seen a touch, so it draws the bomb button
 	board_status:    Board_Status,
 	board:           [BOARD_ROWS]Board_Entry,
 	board_count:     int,
@@ -189,46 +204,138 @@ take_sfx :: proc(g: ^Game) -> (s: Sound, ok: bool) {
 	return s, true
 }
 
-command :: proc(g: ^Game, c: Command) {
-	switch c {
-	case .Left:
-		turn(g, -1)
-	case .Right:
-		turn(g, 1)
+// start_run begins a fresh run from the menu.
+start_run :: proc(g: ^Game) {
+	if g.in_play {
+		return
+	}
+	reset(g)
+	g.in_play = true
+	g.screen = .Menu
+}
+
+toggle_mute :: proc(g: ^Game) {
+	g.muted = !g.muted
+	g.dirty = true
+	if g.muted {
+		g.sfx_count = 0
+	}
+}
+
+activate :: proc(g: ^Game, item: Menu_Item) {
+	g.menu_sel = item
+	switch item {
 	case .Start:
-		if !g.in_play {
-			reset(g)
-			g.in_play = true
-			g.show_board = false
-			g.show_shop = false
-		}
-	case .Mute:
-		g.muted = !g.muted
-		g.dirty = true
-		if g.muted {
-			g.sfx_count = 0
-		}
-	case .Board:
-		if !g.in_play {
-			g.show_board = !g.show_board
-			g.show_shop = false
-		}
-	case .Bomb:
-		use_bomb(g)
+		start_run(g)
 	case .Shop:
-		if !g.in_play {
-			g.show_shop = !g.show_shop
-			g.show_board = false
+		g.screen = .Shop
+	case .Scores:
+		g.screen = .Scores
+	case .Help:
+		g.screen = .Help
+	case .Sound:
+		toggle_mute(g)
+	}
+}
+
+command :: proc(g: ^Game, c: Command) {
+	if g.in_play {
+		#partial switch c {
+		case .Left:
+			turn(g, -1)
+		case .Right:
+			turn(g, 1)
+		case .Ok:
+			use_bomb(g)
 		}
-	case .Buy:
-		buy(g)
-	case .Up:
-		if g.show_shop && !g.in_play {
+		return
+	}
+	switch g.screen {
+	case .Menu:
+		#partial switch c {
+		case .Up:
+			g.menu_sel = Menu_Item((int(g.menu_sel) + len(Menu_Item) - 1) % len(Menu_Item))
+		case .Down:
+			g.menu_sel = Menu_Item((int(g.menu_sel) + 1) % len(Menu_Item))
+		case .Ok:
+			activate(g, g.menu_sel)
+		}
+	case .Shop:
+		#partial switch c {
+		case .Up:
 			g.shop_sel = .Bomb
-		}
-	case .Down:
-		if g.show_shop && !g.in_play {
+		case .Down:
 			g.shop_sel = .Capacity
+		case .Ok:
+			buy(g)
+		case .Cancel:
+			g.screen = .Menu
+		}
+	case .Scores, .Help:
+		if c == .Ok || c == .Cancel {
+			g.screen = .Menu
+		}
+	}
+}
+
+// Where things sit on the 320 by 240 picture, shared by the renderer and the touch handler.
+PANEL_X :: 16
+PANEL_Y :: 24
+PANEL_W :: WIDTH - 2 * PANEL_X
+PANEL_H :: 176
+MENU_TOP :: 106 // y of the first menu row
+MENU_ROW :: 13
+SHOP_ROW_Y :: [Shop_Item]int{.Bomb = 106, .Capacity = 124}
+BACK_W :: 44
+BACK_H :: 13
+BACK_X :: WIDTH - PANEL_X - 6 - BACK_W
+BACK_Y :: PANEL_Y + PANEL_H - 16
+BOMB_BTN_W :: 52
+BOMB_BTN_H :: 15
+BOMB_BTN_X :: (WIDTH - BOMB_BTN_W) / 2
+BOMB_BTN_Y :: HEIGHT - BOMB_BTN_H - 1
+TOUCH_PAD :: 6 // extra reach around a button
+
+within :: proc(x, y, rx, ry, rw, rh: int, pad := 0) -> bool {
+	return x >= rx - pad && x < rx + rw + pad && y >= ry - pad && y < ry + rh + pad
+}
+
+// bomb_button_shown: a visible bomb button for touch players who own bombs.
+bomb_button_shown :: proc(g: ^Game) -> bool {
+	return g.in_play && g.touch && g.bombs > 0
+}
+
+// tap handles a touch or click at (x, y) on the 320 by 240 picture: the sides turn in a run, the bomb button
+// bombs, and between runs a tap on a row selects and activates it while the BACK button goes back.
+tap :: proc(g: ^Game, x, y: int) {
+	if g.in_play {
+		if bomb_button_shown(g) && within(x, y, BOMB_BTN_X, BOMB_BTN_Y, BOMB_BTN_W, BOMB_BTN_H, TOUCH_PAD) {
+			use_bomb(g)
+		} else {
+			command(g, x < WIDTH / 2 ? .Left : .Right)
+		}
+		return
+	}
+	back := within(x, y, BACK_X, BACK_Y, BACK_W, BACK_H, TOUCH_PAD)
+	switch g.screen {
+	case .Menu:
+		row := (y - (MENU_TOP - 2)) / MENU_ROW
+		if y >= MENU_TOP - 2 && row < len(Menu_Item) {
+			activate(g, Menu_Item(row))
+		}
+	case .Shop:
+		if back {
+			g.screen = .Menu
+		} else if y >= SHOP_ROW_Y[.Bomb] - 8 && y < SHOP_ROW_Y[.Capacity] - 8 {
+			g.shop_sel = .Bomb
+			buy(g)
+		} else if y >= SHOP_ROW_Y[.Capacity] - 8 && y < SHOP_ROW_Y[.Capacity] + 16 {
+			g.shop_sel = .Capacity
+			buy(g)
+		}
+	case .Scores, .Help:
+		if back {
+			g.screen = .Menu
 		}
 	}
 }
@@ -268,7 +375,7 @@ capacity_price :: proc(g: ^Game) -> (price: int, ok: bool) {
 
 // buy trades bank money for the item under the shop's cursor, in the shop only.
 buy :: proc(g: ^Game) {
-	if g.in_play || !g.show_shop {
+	if g.in_play || g.screen != .Shop {
 		return
 	}
 	price: int
@@ -401,7 +508,8 @@ crash :: proc(g: ^Game) {
 		g.bank += g.kept
 		g.dirty = true
 	}
-	g.show_board = false
+	g.screen = .Menu
+	g.menu_sel = .Start
 	g.submit = g.score
 	play_sound(g, .Death)
 }

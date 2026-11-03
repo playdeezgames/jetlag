@@ -5,8 +5,14 @@ import "core:testing"
 
 started :: proc(seed: u64 = 1) -> Game {
 	g := new_game(seed)
-	command(&g, .Start)
+	start_run(&g)
 	return g
+}
+
+// open_shop goes from the menu to the shop the way a player does.
+open_shop :: proc(g: ^Game) {
+	g.menu_sel = .Shop
+	command(g, .Ok)
 }
 
 // clear_ahead removes every charm so a test controls what the jet meets.
@@ -25,7 +31,7 @@ place_next :: proc(g: ^Game, charm: Charm, column: i8) {
 test_start_resets_and_plays :: proc(t: ^testing.T) {
 	g := new_game(5)
 	testing.expect(t, !g.in_play)
-	command(&g, .Start)
+	start_run(&g)
 	testing.expect(t, g.in_play)
 	testing.expect_value(t, g.direction, 1)
 	for i in 0 ..< TAIL_LENGTH {
@@ -159,7 +165,7 @@ test_restart_keeps_persistent_values :: proc(t: ^testing.T) {
 	g := started()
 	g.high, g.bank = 99, 12
 	g.in_play = false
-	command(&g, .Start)
+	start_run(&g)
 	testing.expect_value(t, g.high, 99)
 	testing.expect_value(t, g.bank, 12)
 	testing.expect_value(t, g.score, 0)
@@ -178,7 +184,7 @@ test_tick_uses_step_time :: proc(t: ^testing.T) {
 @(test)
 test_mute_silences_and_flags_save :: proc(t: ^testing.T) {
 	g := started()
-	command(&g, .Mute)
+	toggle_mute(&g)
 	testing.expect(t, g.muted)
 	testing.expect(t, g.dirty)
 	turn(&g, -1)
@@ -232,7 +238,7 @@ test_soak_random_play_keeps_invariants :: proc(t: ^testing.T) {
 	g := new_game(77)
 	for i in 0 ..< 20000 {
 		if !g.in_play {
-			command(&g, .Start)
+			start_run(&g)
 		}
 		if next_u32(&g) % 7 == 0 {
 			command(&g, next_u32(&g) % 2 == 0 ? .Left : .Right)
@@ -277,12 +283,11 @@ test_render_draws_head_tail_walls_and_charms :: proc(t: ^testing.T) {
 
 @(test)
 test_menu_text_fits_in_the_panel :: proc(t: ^testing.T) {
-	lines := MENU_LINES
+	lines := HELP_LINES
 	for line in lines {
 		testing.expectf(t, text_width(line, 1) <= PANEL_W - 8, "%q is %d wide", line, text_width(line, 1))
 	}
 	testing.expect(t, text_width("JETLAG", 4) <= PANEL_W - 8)
-	testing.expect(t, text_width("COINS ARE LOST IF YOU CRASH", 1) > 0)
 }
 
 @(test)
@@ -293,7 +298,7 @@ test_menu_shows_only_when_not_in_play :: proc(t: ^testing.T) {
 	render(&g, f)
 	menu_pixel := f[(PANEL_Y) * WIDTH + WIDTH / 2]
 	testing.expect_value(t, menu_pixel, u32(GRAY)) // the panel's top border
-	command(&g, .Start)
+	start_run(&g)
 	render(&g, f)
 	testing.expect(t, f[(PANEL_Y) * WIDTH + WIDTH / 2] != u32(GRAY))
 }
@@ -370,7 +375,7 @@ test_bot_survives_a_while :: proc(t: ^testing.T) {
 		g2 := new_game(5)
 		render(&g2, f)
 		write_ppm(f, "build/shots/title.ppm")
-		command(&g2, .Start)
+		start_run(&g2)
 		for _ in 0 ..< 70 {
 			bot_turn(&g2)
 			step(&g2)
@@ -387,10 +392,15 @@ test_bot_survives_a_while :: proc(t: ^testing.T) {
 		write_ppm(f, "build/shots/crashed.ppm")
 		g2.bombs = 1
 		g2.bomb_level = 1
-		command(&g2, .Shop)
+		open_shop(&g2)
 		command(&g2, .Down)
 		render(&g2, f)
 		write_ppm(f, "build/shots/shop.ppm")
+		command(&g2, .Cancel)
+		g2.menu_sel = .Help
+		command(&g2, .Ok)
+		render(&g2, f)
+		write_ppm(f, "build/shots/help.ppm")
 	}
 }
 
@@ -415,14 +425,107 @@ test_zero_score_is_not_submitted :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_board_screen_toggles_only_out_of_play :: proc(t: ^testing.T) {
+test_menu_moves_activates_and_cancel_goes_back :: proc(t: ^testing.T) {
 	g := new_game(3)
-	command(&g, .Board)
-	testing.expect(t, g.show_board)
-	command(&g, .Start) // flying hides it
-	testing.expect(t, !g.show_board && g.in_play)
-	command(&g, .Board)
-	testing.expect(t, !g.show_board)
+	testing.expect_value(t, g.menu_sel, Menu_Item.Start)
+	command(&g, .Up) // wraps to the last row
+	testing.expect_value(t, g.menu_sel, Menu_Item.Sound)
+	command(&g, .Down)
+	testing.expect_value(t, g.menu_sel, Menu_Item.Start)
+	command(&g, .Down)
+	command(&g, .Ok)
+	testing.expect_value(t, g.screen, Screen.Shop)
+	command(&g, .Cancel)
+	testing.expect_value(t, g.screen, Screen.Menu)
+	command(&g, .Cancel) // nothing to cancel on the menu
+	testing.expect_value(t, g.screen, Screen.Menu)
+	testing.expect(t, !g.in_play)
+	for item in ([?]struct {
+			item:   Menu_Item,
+			screen: Screen,
+		}{{.Scores, .Scores}, {.Help, .Help}}) {
+		g.menu_sel = item.item
+		command(&g, .Ok)
+		testing.expect_value(t, g.screen, item.screen)
+		command(&g, .Cancel)
+		testing.expect_value(t, g.screen, Screen.Menu)
+	}
+}
+
+@(test)
+test_sound_menu_entry_toggles_mute :: proc(t: ^testing.T) {
+	g := new_game(3)
+	g.menu_sel = .Sound
+	command(&g, .Ok)
+	testing.expect(t, g.muted && g.dirty)
+	testing.expect_value(t, g.screen, Screen.Menu)
+	command(&g, .Ok)
+	testing.expect(t, !g.muted)
+}
+
+@(test)
+test_start_entry_starts_a_run_and_ok_then_drops_bombs :: proc(t: ^testing.T) {
+	g := new_game(3)
+	command(&g, .Ok) // the cursor starts on START GAME
+	testing.expect(t, g.in_play)
+	g.bombs = 1
+	g.charms[4] = .Block
+	command(&g, .Ok)
+	testing.expect_value(t, g.charms[4], Charm.Coin)
+	testing.expect_value(t, g.bombs, 0)
+	command(&g, .Cancel) // does nothing in a run
+	command(&g, .Up)
+	command(&g, .Down)
+	testing.expect(t, g.in_play)
+	testing.expect_value(t, g.direction, i8(1))
+}
+
+@(test)
+test_a_crash_returns_to_the_menu_on_start_game :: proc(t: ^testing.T) {
+	g := started()
+	g.menu_sel = .Sound
+	crash(&g)
+	testing.expect_value(t, g.screen, Screen.Menu)
+	testing.expect_value(t, g.menu_sel, Menu_Item.Start)
+}
+
+@(test)
+test_taps_turn_in_a_run_and_work_the_buttons :: proc(t: ^testing.T) {
+	g := started()
+	tap(&g, 10, 100) // left half turns left
+	testing.expect_value(t, g.direction, i8(-1))
+	tap(&g, 300, 100)
+	testing.expect_value(t, g.direction, i8(1))
+	g.bombs = 1
+	g.charms[4] = .Block
+	tap(&g, BOMB_BTN_X + 2, BOMB_BTN_Y + 2) // no button until a touch is seen: this just turns left
+	testing.expect_value(t, g.bombs, 1)
+	g.touch = true
+	g.direction = 1
+	tap(&g, BOMB_BTN_X + 2, BOMB_BTN_Y + 2)
+	testing.expect_value(t, g.bombs, 0)
+	testing.expect_value(t, g.direction, i8(1)) // the button bombs, it does not turn
+}
+
+@(test)
+test_taps_drive_the_menu_shop_and_back_button :: proc(t: ^testing.T) {
+	g := new_game(3)
+	g.bank = 100
+	tap(&g, 160, MENU_TOP + MENU_ROW + 3) // the SHOP row
+	testing.expect_value(t, g.screen, Screen.Shop)
+	tap(&g, 160, SHOP_ROW_Y[.Bomb] + 3)
+	testing.expect_value(t, g.bombs, 1)
+	tap(&g, 160, SHOP_ROW_Y[.Capacity] + 3)
+	testing.expect_value(t, g.bomb_level, 1)
+	testing.expect_value(t, g.bank, 65)
+	tap(&g, BACK_X + 3, BACK_Y + 3)
+	testing.expect_value(t, g.screen, Screen.Menu)
+	tap(&g, 160, MENU_TOP + 4 * MENU_ROW + 3) // SOUND
+	testing.expect(t, g.muted)
+	tap(&g, 160, MENU_TOP - 30) // nothing here
+	testing.expect_value(t, g.screen, Screen.Menu)
+	tap(&g, 160, MENU_TOP + 3) // START GAME
+	testing.expect(t, g.in_play)
 }
 
 @(test)
@@ -445,7 +548,7 @@ test_bomb_turns_every_block_into_a_coin_and_is_spent :: proc(t: ^testing.T) {
 	g.charms[3], g.charms[10], g.charms[ROWS - 1] = .Block, .Block, .Block
 	g.charms[5], g.charms[7] = .Coin, .Bank
 	g.columns[3] = 9
-	command(&g, .Bomb)
+	use_bomb(&g)
 	for r in 0 ..< ROWS {
 		testing.expect(t, g.charms[r] != .Block)
 	}
@@ -464,11 +567,11 @@ test_bomb_kept_with_nothing_to_convert_or_none_owned :: proc(t: ^testing.T) {
 	g := started()
 	clear_charms(&g)
 	g.bombs = 1
-	command(&g, .Bomb)
+	use_bomb(&g)
 	testing.expect_value(t, g.bombs, 1)
 	g.bombs = 0
 	g.charms[4] = .Block
-	command(&g, .Bomb)
+	use_bomb(&g)
 	testing.expect_value(t, g.charms[4], Charm.Block)
 }
 
@@ -477,7 +580,7 @@ test_bomb_ignored_between_runs :: proc(t: ^testing.T) {
 	g := new_game(1)
 	g.bombs = 1
 	g.charms[4] = .Block
-	command(&g, .Bomb)
+	use_bomb(&g)
 	testing.expect_value(t, g.bombs, 1)
 }
 
@@ -485,48 +588,48 @@ test_bomb_ignored_between_runs :: proc(t: ^testing.T) {
 test_shop_buys_a_bomb_from_the_bank :: proc(t: ^testing.T) {
 	g := new_game(1)
 	g.bank = 25
-	command(&g, .Buy) // not in the shop yet
+	buy(&g) // not in the shop yet
 	testing.expect_value(t, g.bombs, 0)
-	command(&g, .Shop)
-	testing.expect(t, g.show_shop)
-	command(&g, .Buy)
-	command(&g, .Buy)
+	open_shop(&g)
+	testing.expect_value(t, g.screen, Screen.Shop)
+	buy(&g)
+	buy(&g)
 	testing.expect_value(t, g.bombs, 2)
 	testing.expect_value(t, g.bank, 5)
-	command(&g, .Buy) // cannot afford
+	buy(&g) // cannot afford
 	testing.expect_value(t, g.bombs, 2)
 	g.bank = 100
-	command(&g, .Buy)
-	command(&g, .Buy) // carrying the most
+	buy(&g)
+	buy(&g) // carrying the most
 	testing.expect_value(t, g.bombs, BASE_BOMBS)
 	testing.expect_value(t, g.bank, 90)
 }
 
 @(test)
-test_bombs_survive_a_crash_and_the_shop_closes_on_start :: proc(t: ^testing.T) {
+test_bombs_survive_a_crash_and_starting_leaves_the_shop :: proc(t: ^testing.T) {
 	g := new_game(1)
 	g.bombs = 2
-	command(&g, .Shop)
-	command(&g, .Start)
+	open_shop(&g)
+	start_run(&g)
 	testing.expect(t, g.in_play)
-	testing.expect(t, !g.show_shop)
-	command(&g, .Shop) // no shop mid-run
-	testing.expect(t, !g.show_shop)
+	testing.expect_value(t, g.screen, Screen.Menu)
+	command(&g, .Down) // the menu is not reachable mid-run
+	testing.expect_value(t, g.screen, Screen.Menu)
 	crash(&g)
 	testing.expect_value(t, g.bombs, 2)
 }
 
 @(test)
 test_menu_text_does_not_overlap_the_footer :: proc(t: ^testing.T) {
-	// the crash report with the longest rules block must end above the bank line, which sits above the footer
-	testing.expect(t, 106 + 11 * len(MENU_LINES) <= PANEL_Y + PANEL_H - 38)
+	// the last menu row (8 tall) must end above the bank line, which sits above the hint line
+	testing.expect(t, MENU_TOP + (len(Menu_Item) - 1) * MENU_ROW + 8 <= PANEL_Y + PANEL_H - 28)
 }
 
 @(test)
 test_capacity_upgrades_cost_double_and_stop_at_the_cap :: proc(t: ^testing.T) {
 	g := new_game(1)
 	g.bank = 1_000_000
-	command(&g, .Shop)
+	open_shop(&g)
 	command(&g, .Down)
 	testing.expect_value(t, g.shop_sel, Shop_Item.Capacity)
 	price, ok := capacity_price(&g)
@@ -534,12 +637,12 @@ test_capacity_upgrades_cost_double_and_stop_at_the_cap :: proc(t: ^testing.T) {
 	testing.expect_value(t, price, 25)
 	prev := g.bank
 	for level in 1 ..= MAX_BOMB_LEVEL {
-		command(&g, .Buy)
+		buy(&g)
 		testing.expect_value(t, g.bomb_level, level)
 		testing.expect_value(t, prev - g.bank, 25 << uint(level - 1))
 		prev = g.bank
 	}
-	command(&g, .Buy) // maxed
+	buy(&g) // maxed
 	testing.expect_value(t, g.bomb_level, MAX_BOMB_LEVEL)
 	testing.expect_value(t, g.bank, prev)
 	_, ok = capacity_price(&g)
@@ -551,16 +654,16 @@ test_capacity_upgrades_cost_double_and_stop_at_the_cap :: proc(t: ^testing.T) {
 test_capacity_needs_the_money_and_lets_you_carry_more :: proc(t: ^testing.T) {
 	g := new_game(1)
 	g.bank = 24
-	command(&g, .Shop)
+	open_shop(&g)
 	command(&g, .Down)
-	command(&g, .Buy)
+	buy(&g)
 	testing.expect_value(t, g.bomb_level, 0)
 	g.bank = 25 + 10 * 4
-	command(&g, .Buy)
+	buy(&g)
 	testing.expect_value(t, g.bank, 40)
 	command(&g, .Up)
 	for _ in 0 ..< 6 {
-		command(&g, .Buy)
+		buy(&g)
 	}
 	testing.expect_value(t, g.bombs, 4) // 3 base + 1 upgrade; 40 buys four, capacity is 4
 	testing.expect_value(t, g.bank, 0)

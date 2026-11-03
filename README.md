@@ -8,11 +8,14 @@ This one game replaces two earlier versions: JetLag 2020 (Defold, Lua) and JetLa
 
 ## Rules
 
-- Left / Right, A / D, or tap the left or right half of the screen to turn. Z, Space, Enter or a tap starts a run. M mutes.
+- In a run: Left / Right, A / D, or tap the left or right half of the screen to turn. Z or Space (OK) drops a bomb, or tap the BOMB button on a touch screen.
+- In the menus: Up / Down (or W / S) pick, Z or Space activates, X or Esc goes back; on a touch screen tap an item, or the BACK button. A gamepad uses the D-pad or stick, A for OK and B for back.
+- The title menu has Start Game, Shop, High Scores, How To Play and Sound (mute).
+- Bombs ($10 each, bought in the shop with banked money) turn every block on the screen into a coin; a capacity upgrade lets you carry more.
 - Hitting a wall or a white block ends the run.
 - A turn scores `run * (run + 1) / 2`, where `run` is the ticks since your last turn. Turning the way you already face does nothing.
-- Each new row holds one charm: a block (90%), a coin (9%) or a bank (1%). A coin is worth $1 for this run. Hit a bank to move the run's money into your bank. Crash with money in hand and it is lost.
-- The high score, the bank and mute are saved in the browser.
+- Each new row holds one charm: a block (90%), a coin (9%) or a bank (1%). A coin is worth $1 for this run. Hit a bank to move the run's money into your bank. Crash with money in hand and half of it (rounded down) goes to the bank; the rest is lost.
+- The high score, the bank, bombs, capacity and mute are saved in the browser.
 
 ## Build
 
